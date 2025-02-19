@@ -13,9 +13,9 @@ Running
 The main XXXgen program is `xxxgen.py'.
 
 Run
-$ python xxxgen.py < RULE_FILE 
+$ python python/xxxgen.py < RULE_FILE 
 or
-$ python xxxgen.py RULE_FILE
+$ python python/xxxgen.py RULE_FILE
 
 Output is standard output. Writing to file can be implemented with two or so lines of code.
 
