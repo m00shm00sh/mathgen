@@ -39,7 +39,9 @@ class Generator:
         self._logger.setLevel(log_level)
 
         # read rule file from io-ish arg `stream`
-        self._rules = {}
+        self._rules: dict[str, list[str]] = {}
+        self._num_rules: dict[str, int] = {}
+        self._dup_rules: dict[str, list[str]] = {}
         self._did_files = set()
         self._child_fhs = []
         # empty stream -> read from stdin
@@ -52,15 +54,11 @@ class Generator:
         self._lookup = Generator._make_lookup_rx(self._rules)
 
         self._start_token = start_token
-   
-        self._cleanups = set()
+
 
     #
     # Methods for parsing the rule files
     #
-
-    def _dup_name(name):
-        return name + '!!!'
 
     # We abstract reading a line from a stream to a generator for two reasons:
     # (1) filter comment and empty lines
@@ -86,7 +84,7 @@ class Generator:
             m = re.search(r'([^\+]*)\!$', name)
             if m:
                 name = m.group(1)
-                self._rules.setdefault(Generator._dup_name(name), []).append('')
+                self._dup_rules.setdefault(name, []).append('')
                 continue
             # include rule
             if name == '.include':
@@ -196,12 +194,9 @@ class Generator:
         return None
     
     def generate_string(self):
-        self._cleanups.clear()
-        pprint(self._rules,  compact=True)
         s = self._generate_string_r(self._start_token)
         # cleanup
-        for k in self._cleanups:
-            del self._rules[k]
+        self._num_rules = {}
         return s
 
     def _generate_string_r(self, start_tok):
@@ -215,12 +210,9 @@ class Generator:
         m = re.search(r'(.*)([\+#])$', start_tok)
         if m:
             rule_n = m.group(1).strip()
-            i = self._rules.get(rule_n)
-            if i is None:
-                i = 0
+            i = self._num_rules.get(rule_n, 0)
             if m.group(2) == '+':
-                self._rules[rule_n] = i + 1
-                self._cleanups.add(rule_n)
+                self._num_rules[rule_n] = i + 1
             elif m.group(2) == '#' and bool(i):
                 i = random.randrange(i)
             return str(i)
@@ -253,8 +245,7 @@ class Generator:
             full_token = "".join(map(str, components))
             
             # check for dup name
-            rule_name = Generator._dup_name(start_tok)
-            dups = self._rules.get(rule_name)
+            dups = self._dup_rules.get(start_tok)
 
             if dups:
                 # make sure we haven't generated this exact token yet
@@ -264,8 +255,7 @@ class Generator:
                         break
                 
                 if not do_repeat:
-                    self._cleanups.add(rule_name)
-                    self._rules[rule_name].append(full_token)
+                    self._dup_rules[start_tok].append(full_token)
                 elif count > 50:
                     do_repeat = False
 
