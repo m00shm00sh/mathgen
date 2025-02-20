@@ -223,7 +223,7 @@ class Generator:
                 self._cleanups.add(rule_n)
             elif m.group(2) == '#' and bool(i):
                 i = random.randrange(i)
-            return i
+            return str(i)
 
         full_token = None
         do_repeat = True
