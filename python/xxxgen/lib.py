@@ -162,13 +162,14 @@ class Generator:
 
     def add_authors(self, *alist):
         self._rules["AUTHOR_NAME"] = alist
-        a = [_ for _ in alist]
-        lastauth = a.pop()
+        a, lastauth = alist[:-1], alist[-1]
         s = ''
         if a:
             s = ", ".join(a) + " and "
         s = s + lastauth
         self._rules['SCIAUTHORS'] = [ s ]
+        # rebuild
+        self._lookup = Generator._make_lookup_rx(self._rules)
 
 
     _pfr_result = namedtuple('Pop_first_rule_result',

@@ -38,4 +38,5 @@ if len(sys.argv) >= 2:
     fh = open(sys.argv[1], 'r')
 
 g = xxxgen.Generator(start_token = 'START', stream = fh)
+g.add_authors("AUTHOR")
 print(g.generate_string())
