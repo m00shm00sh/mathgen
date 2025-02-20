@@ -153,7 +153,7 @@ class Generator:
         for i in range(nyears):
             y = year - nyears + i
             n = r ** (i / nyears)
-            year_rule.extend((y,)*int(n))
+            year_rule.extend((str(y),)*int(n))
         
         return year_rule
     # 
@@ -184,10 +184,6 @@ class Generator:
             rule = match.group(2)
             did_match = True
             return ''
-        # some terminal tokens are numeric and re.sub requires string-like objects
-        # handle that case here
-        if type(in_tok) == int:
-            in_tok = str(in_tok)
         new_tok = self._lookup.sub(rep_fn, in_tok, count = 1)
         if did_match:
             return self._pfr_result(pre, rule, new_tok)
@@ -230,8 +226,10 @@ class Generator:
             # recursively expand until rule matches are exhausted
             components = []
 
-            _pfr = self._pop_first_rule(in_tok)
-            while _pfr is not None:
+            while True:
+                _pfr = self._pop_first_rule(in_tok)
+                if _pfr is None:
+                    break
                 (pre, rule, in_tok) = _pfr
                 ex = self._generate_string_r(rule)
                 if pre:
@@ -242,7 +240,7 @@ class Generator:
                 _pfr = self._pop_first_rule(in_tok)
             if in_tok:
                 components.append(in_tok)
-            full_token = "".join(map(str, components))
+            full_token = "".join(components)
             
             # check for dup name
             dups = self._dup_rules.get(start_tok)
