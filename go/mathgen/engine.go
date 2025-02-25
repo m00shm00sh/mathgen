@@ -150,9 +150,8 @@ func fileIterator(l *log.Logger, fh io.Reader) iter.Seq[string] {
 	}
 }
 
-var rxNonduplicateRule = regexp.MustCompile(`([^+]*)!$`)
-var rxWeightRule = regexp.MustCompile(`([^+]*)\+(\d+)$`)
-var rxCheckSpecial = regexp.MustCompile(`(.*)([+#])$`)
+var readRulesNoDuplicateRuleRx = regexp.MustCompile(`([^+]*)!$`)
+var readRulesWeightedRuleRx = regexp.MustCompile(`([^+]*)\+(\d+)$`)
 
 func (g *Generator) appendRule(name string, ruleItem string) {
 	items := g.rules[name]
@@ -204,7 +203,7 @@ func (g *Generator) readRulesFile(fh io.Reader) {
 
 		// non-duplicate rule;
 		// each expansion instance produces a different substitution
-		if m := rxNonduplicateRule.FindStringSubmatch(name); m != nil {
+		if m := readRulesNoDuplicateRuleRx.FindStringSubmatch(name); m != nil {
 			name = m[1]
 			g.appendDupRule(name, "")
 			continue
@@ -247,7 +246,7 @@ func (g *Generator) readRulesFile(fh io.Reader) {
 		}
 		// look for weight
 		weight := 1
-		if m := rxWeightRule.FindStringSubmatch(name); m != nil {
+		if m := readRulesWeightedRuleRx.FindStringSubmatch(name); m != nil {
 			name = m[1]
 			weight, err = strconv.Atoi(m[2])
 			if err != nil {
@@ -356,6 +355,8 @@ func (g *Generator) GenerateText() string {
 	return g.GenerateString("START")
 }
 
+var expandRecursivelyCheckSpecialRuleRx = regexp.MustCompile(`(.*)([+#])$`)
+
 func (g *Generator) expandRecursively(start string) string {
 	/* check for special rules ending in + and #
 	 * Rules ending in + generate a sequential integer
@@ -363,7 +364,7 @@ func (g *Generator) expandRecursively(start string) string {
 	 * The stripped rule entry is the active counter which is used as either
 	 * a thing to increment or an upper limit
 	 */
-	if m := rxCheckSpecial.FindStringSubmatch(start); m != nil {
+	if m := expandRecursivelyCheckSpecialRuleRx.FindStringSubmatch(start); m != nil {
 		numRule := strings.TrimSpace(m[1])
 		i := g.numRules[numRule]
 		if m[2] == "+" {
