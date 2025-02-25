@@ -324,16 +324,20 @@ func pickRand(r *rand.Rand, s []string) string {
 	return s[r.Intn(n)]
 }
 
-// (inTok) -> (pre, rule, post)
+// (inTok) -> {pre, rule, post}
 func (g *Generator) popFirstRule(inTok string) []string {
 	var pre string
 	var rule string
 	var post string
-	mi := g.lookupRx.FindStringSubmatchIndex(inTok)
-	if len(mi) == 6 {
-		pre = inTok[mi[2]:mi[3]]
-		rule = inTok[mi[4]:mi[5]]
-		post = inTok[mi[1]:]
+	didMatch := false
+	post = ReplaceAllStringSubmatchIndexFunc(g.tokenRx, inTok, 1, func(mi []int) string {
+		unreachable(len(mi) != 6, "unexpected match")
+		pre = inTok[mi[2]:mi[3]]  // $1
+		rule = inTok[mi[4]:mi[5]] // $2
+		didMatch = true
+		return ""
+	})
+	if didMatch {
 		return []string{pre, rule, post}
 	}
 	return nil
