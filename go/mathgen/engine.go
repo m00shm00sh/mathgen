@@ -1,5 +1,5 @@
 /*
- * lib.go - grammar engine
+ * engine.go - grammar engine
  * Mathgen, Golang port.
  * Copyright (C) 2025 Andrey V.
  *
@@ -14,6 +14,7 @@ package mathgen
 import (
 	"bufio"
 	"io"
+	"iter"
 	"log"
 	"math"
 	"math/rand"
@@ -122,22 +123,22 @@ func (b *GeneratorBuilder) Build() *Generator {
 	return &g
 }
 
-func fileIterator(l *log.Logger, fh io.Reader) <-chan string {
-	lineItr := make(chan string)
-	go func() {
-		sc := bufio.NewScanner(fh)
+func fileIterator(l *log.Logger, fh io.Reader) iter.Seq[string] {
+	sc := bufio.NewScanner(fh)
+	return func(yield func(string) bool) {
 		for sc.Scan() {
 			line := strings.TrimSpace(sc.Text())
 			if len(line) > 0 && line[0] != '#' {
-				lineItr <- line
+				if !yield(line) {
+					break
+				}
 			}
 		}
 		if err := sc.Err(); err != nil {
 			l.Panicln(err)
 		}
-		close(lineItr)
-	}()
-	return lineItr
+
+	}
 }
 
 var rxNonduplicateRule = regexp.MustCompile(`([^+]*)!$`)
