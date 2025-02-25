@@ -112,7 +112,7 @@ func (b *GeneratorBuilder) Build() *Generator {
 	g.addAuthorsRule(b.authors)
 	g.addYearRule()
 	g.buildLookupRx()
-	g.logDebug(g.rules)
+	g.logDebugF("%v", g.rules)
 	return &g
 }
 
@@ -162,10 +162,14 @@ func (g *Generator) logVerbose(v ...any) {
 		g.logger.Println(a...)
 	}
 }
-func (g *Generator) logDebug(v ...any) {
+func (g *Generator) logDebugF(fmt string, v ...any) {
 	if g.verbosity >= Debug {
-		a := slices.Concat([]any{"D:"}, v)
-		g.logger.Println(a...)
+		g.logger.Printf("D: "+fmt, v...)
+	}
+}
+func (g *Generator) logDebugFunc(f func() string) {
+	if g.verbosity >= Debug {
+		g.logger.Println("D:", f())
 	}
 }
 
@@ -220,7 +224,7 @@ func (g *Generator) readRulesFile(fh io.Reader) {
 				}
 			}
 			if !seenEnd {
-				g.logPanic(name, "EOF reached before end of rule")
+				g.logPanic(name, ":", "EOF reached before end of rule")
 			}
 		} else {
 			rule = strings.Join(words, " ")
@@ -233,7 +237,7 @@ func (g *Generator) readRulesFile(fh io.Reader) {
 			if err != nil {
 				g.logPanic(name, "int parse:", m[2], err)
 			}
-			g.logVerbose("weighting rule by ", weight, ":", name, "->", rule)
+			g.logVerbose("weighting rule by ", weight, ":", name, "->", cleanupNewlines(rule))
 		}
 		for weight > 0 {
 			weight -= 1
@@ -352,7 +356,7 @@ func (g *Generator) expandRecursively(start string) string {
 	for doRepeat {
 		inputTok := pickRand(g.rng, g.rules[start])
 		count += 1
-		g.logDebug("expand:", start, "->", inputTok)
+		g.logDebugF("expand: %s -> %v", start, inputTok)
 
 		doRepeat = false
 
