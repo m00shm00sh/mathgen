@@ -13,15 +13,16 @@ package mathgen
 
 import (
 	"bufio"
+	"cmp"
 	"io"
 	"iter"
 	"log"
+	"maps"
 	"math"
 	"math/rand"
 	"os"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -111,8 +112,23 @@ func (b *GeneratorBuilder) Build() *Generator {
 	g.readRulesFile(b.fh)
 	g.addAuthorsRule(b.authors)
 	g.addYearRule()
-	g.buildLookupRx()
-	g.logDebugF("%v", g.rules)
+	g.generateTokenRx()
+	g.logDebugFunc(func() string {
+		var b strings.Builder
+		rKeys := slices.Collect(maps.Keys(g.rules))
+		slices.SortFunc(rKeys, func(a, b string) int {
+			return strings.Compare(a, b)
+		})
+		b.WriteString("dump rules\n")
+		for _, k := range rKeys {
+			b.WriteString("* rule: ")
+			b.WriteString(k)
+			b.WriteString(" -> ")
+			b.WriteString(cleanupNewlines(strings.Join(g.rules[k], "|")))
+			b.WriteRune('\n')
+		}
+		return b.String()
+	})
 	return &g
 }
 
@@ -246,22 +262,26 @@ func (g *Generator) readRulesFile(fh io.Reader) {
 	}
 }
 
-func computeLookupRegexp(m map[string][]string) *regexp.Regexp {
+func generateTokenRegexpFromRules(m map[string][]string) *regexp.Regexp {
 	keys := make([]string, len(m))
 	i := 0
-	for k := range m {
+	for k := range maps.Keys(m) {
 		keys[i] = k
 		i += 1
 	}
 	// must sort to get a longest match by descending order
-	sort.Slice(keys, func(i, j int) bool { return len(keys[i]) > len(keys[j]) })
+	slices.SortFunc(keys, func(a, b string) int {
+		return -cmp.Compare(len(a), len(b))
+	})
 	pat := strings.Join(keys, "|")
-	rePat := `(?s)^(.*?)(` + pat + `)`
+	rePat := rxFlagS + `^(.*?)(` + pat + `)`
 	return regexp.MustCompile(rePat)
 }
 
-func (g *Generator) buildLookupRx() {
-	g.lookupRx = computeLookupRegexp(g.rules)
+func (g *Generator) generateTokenRx() *regexp.Regexp {
+	old := g.tokenRx
+	g.tokenRx = generateTokenRegexpFromRules(g.rules)
+	return old
 }
 
 func (g *Generator) addYearRule() {
