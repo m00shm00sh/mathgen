@@ -45,10 +45,9 @@ type loggable struct {
 
 type GeneratorBuilder struct {
 	loggable
-	fh         io.Reader
-	startToken string
-	seed       int64
-	authors    []string
+	fh      io.Reader
+	seed    int64
+	authors []string
 }
 
 func NewGeneratorBuilder() *GeneratorBuilder {
@@ -61,10 +60,6 @@ func NewGeneratorBuilder() *GeneratorBuilder {
 		seed:    rand.Int63(),
 		authors: []string{"AUTHOR"},
 	}
-}
-func (b *GeneratorBuilder) SetStartToken(s string) *GeneratorBuilder {
-	b.startToken = s
-	return b
 }
 func (b *GeneratorBuilder) SetInputStream(fh io.Reader) *GeneratorBuilder {
 	b.fh = fh
@@ -96,17 +91,15 @@ type Generator struct {
 	numRules     map[string]int
 	dupRules     map[string][]string
 	handledFiles map[string]empty
-	lookupRx     *regexp.Regexp
-	startToken   string
+	tokenRx      *regexp.Regexp
 	rng          *rand.Rand
 }
 
 func (b *GeneratorBuilder) Build() *Generator {
 	seed := b.seed
 	g := Generator{
-		loggable:   b.loggable,
-		startToken: b.startToken,
-		rng:        rand.New(rand.NewSource(seed)),
+		loggable: b.loggable,
+		rng:      rand.New(rand.NewSource(seed)),
 
 		rules:        make(map[string][]string),
 		numRules:     make(map[string]int),
@@ -322,12 +315,17 @@ func (g *Generator) popFirstRule(inTok string) []string {
 	return nil
 }
 
-func (g *Generator) GenerateString() string {
-	s := g.expandRecursively(g.startToken)
-	clear(g.numRules)
+func (g *Generator) GenerateString(startToken string) string {
+	g.logDebugF("tokenRx = %v", g.tokenRx)
+	s := g.expandRecursively(startToken)
+	// is this necessary? might be needed during bibtex pass
+	//clear(g.numRules)
 	// need to separate dups created during rule reading from dups created during expansion
 	//clear(g.dupRules)
 	return s
+}
+func (g *Generator) GenerateText() string {
+	return g.GenerateString("START")
 }
 
 func (g *Generator) expandRecursively(start string) string {

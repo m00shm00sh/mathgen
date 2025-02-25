@@ -16,11 +16,11 @@ func main() {
 			panic(err)
 		}
 	}
-	gb := mathgen.NewGeneratorBuilder().SetStartToken("START")
+	gb := mathgen.NewGeneratorBuilder()
 	if fh != nil {
 		gb = gb.SetInputStream(fh)
 	}
 	g := gb.Build()
-	s := g.GenerateString()
+	s := g.GenerateText()
 	fmt.Println(s)
 }
