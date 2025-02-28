@@ -315,9 +315,10 @@ sub generate_bibtex {
     while( $text =~ /(cite\:\d+)[,\}]/gi ) {
 	$citelabels{$1} = 1;
     }
+    $rules->{"CITE_LABEL_GIVEN"} = 1;
+    scigen::compute_re($rules, \$rules_RE);
     foreach my $clabel (keys(%citelabels)) {
 	$rules->{"CITE_LABEL_GIVEN"} = [ $clabel ];
-	scigen::compute_re($rules, \$rules_RE); # seems inefficient
 	$bib .= scigen::generate 
 	    ($rules, "BIBTEX_ENTRY", $rules_RE, $debug, 'bibtex');
 	$bib .= "\n";
