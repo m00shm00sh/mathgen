@@ -45,6 +45,19 @@ func ReplaceAllStringSubmatchIndexFunc(re *regexp.Regexp, s string, n int, repl 
 	b.WriteString(s[last:])
 	return b.String()
 }
+func SplitStringCapturingSubmatch(re *regexp.Regexp, s string, n int) []string {
+	var w []string
+	last := 0
+	for _, m := range re.FindAllStringSubmatchIndex(s, n) {
+		if len(m) != 4 {
+			panic("this function should be used with a regex containing exactly one capture group")
+		}
+		w = append(w, s[last:m[0]], s[m[2]:m[3]])
+		last = m[1]
+	}
+	w = append(w, s[last:])
+	return w
+}
 
 const rxFlagI = `(?i)`
 const rxFlagS = `(?s)`

@@ -30,15 +30,6 @@ import (
 
 type empty struct{}
 
-type Verbosity int
-
-const (
-	None Verbosity = iota
-	Info
-	Verbose
-	Debug
-)
-
 type loggable struct {
 	logger    *log.Logger
 	verbosity Verbosity
@@ -78,6 +69,9 @@ func (b *GeneratorBuilder) SetRngSeed(r int64) *GeneratorBuilder {
 	b.seed = r
 	return b
 }
+func (b *GeneratorBuilder) RngSeed() int64 {
+	return b.seed
+}
 func (b *GeneratorBuilder) SetAuthors(a []string) *GeneratorBuilder {
 	if a == nil {
 		panic("nil authors")
@@ -109,6 +103,9 @@ func (b *GeneratorBuilder) Build() *Generator {
 	}
 	g.logInfo("seed =", seed)
 	g.rules["SEED"] = []string{strconv.FormatInt(seed, 10)}
+	if b.fh == nil {
+		panic("empty rules reader")
+	}
 	g.readRulesFile(b.fh)
 	g.addAuthorsRule(b.authors)
 	g.addYearRule()
