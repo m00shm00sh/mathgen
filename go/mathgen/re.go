@@ -34,7 +34,7 @@ regexp.(*Regexp).ReplaceAllString lets us replace with submatches but it doesn't
 * Disappointing that there's re.replaceAll but the submatch form never got an exported version.
 * NOTE: There is no version for []byte, unlike regexp API. This may change if there is demand.
 */
-func ReplaceAllStringSubmatchIndexFunc(re *regexp.Regexp, s string, n int, repl func([]int) string) string {
+func replaceAllStringSubmatchIndexFunc(re *regexp.Regexp, s string, n int, repl func([]int) string) string {
 	last := 0
 	var b strings.Builder
 	for _, m := range re.FindAllStringSubmatchIndex(s, n) {
@@ -45,7 +45,7 @@ func ReplaceAllStringSubmatchIndexFunc(re *regexp.Regexp, s string, n int, repl 
 	b.WriteString(s[last:])
 	return b.String()
 }
-func SplitStringCapturingSubmatch(re *regexp.Regexp, s string, n int) []string {
+func splitStringCapturingSubmatch(re *regexp.Regexp, s string, n int) []string {
 	var w []string
 	last := 0
 	for _, m := range re.FindAllStringSubmatchIndex(s, n) {

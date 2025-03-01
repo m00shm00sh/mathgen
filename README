@@ -110,10 +110,8 @@ A quick road map to the files in the source distribution:
   - `(*Generator) GenerateText` generate string with start token `START`
 - go/mathgen/latexpretty.go: LaTeX pretty printing
   - `(*Generator) GeneratePrettyString`: generate LaTeX or Bibtex text with fixed formatting
-- go/mathgen/re.go: internal regex helpers; functions in here may be unexported without notice
-  - `ReplaceAllStringSubmatchIndexFunc`: derivative of `regexp.(*Regexp).ReplaceAllStringFunc` that works on match indices
-  - `SplitStringCapturingSubmatch`: simulate `@w = split /(PATTERN)/, $s`
-- go/mathgen/util.go: internal helpers (no exported functions)
+- go/mathgen/re.go: internal regex helpers (no exported functions)
+- go/mathgen/util.go: internal utility helpers (no exported functions)
 - go/mathgen/verbosity.go: verbosity type and its flag interface
   - Verbosity - type
   - None - verbosity level `none`
