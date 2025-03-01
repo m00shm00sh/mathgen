@@ -13,9 +13,11 @@ package main
 import (
 	"archive/zip"
 	"flag"
+	"errors"
 	"fmt"
 	"github.com/m00shm00sh/mathgen/go/mathgen"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"slices"
@@ -146,7 +148,7 @@ Default: One random author`)
 		`what to output
  pdf: PDF file
  zip: Zip file with LaTeX/BiBTeX source and PDF
- dir: leave source and PDF in directory specified with --dir
+ dir: leave source and PDF in directory specified with -dir
  view: invoke viewer on PDF file
  raw: output raw TeX/txt only (required for product=blurb)`)
 	flag.StringVar(&viewer, "viewer", defaultViewer, "program to use as PDF viewer")
@@ -315,21 +317,32 @@ func runApp(cmd string, a ...string) error {
 func generateOutput(g *mathgen.Generator) error {
 	var err error
 	text := g.GeneratePrettyString(products[product])
-	if mode == "raw" {
-		var ofh io.Writer
-		if ofh, err = outputFh(); err != nil {
-			return err
-		}
-		if err = writeToFh(text, ofh); err != nil {
-			return err
-		}
-		ofhFile, ok := ofh.(*os.File)
-		if ok {
+	var ofh io.Writer
+	// get output fh before chdir
+	if ofh, err = outputFh(); err != nil {
+		return err
+	}
+	defer func () {
+		ofhFile, isFile := ofh.(*os.File)
+		if isFile {
 			if err = ofhFile.Close(); err != nil {
-				return fmt.Errorf("close %s: %w", output, err)
+				panic(fmt.Errorf("close %s: %w", output, err))
 			}
 		}
-		return nil
+		if err == nil {
+			return
+		}
+		if isFile {
+			if err = os.Remove(output); err != nil {
+				if !errors.Is(err, fs.ErrNotExist) {
+					panic(fmt.Errorf("close %s: %w", output, err))
+				}
+			}
+		}
+	}()
+	if mode == "raw" {
+		err = writeToFh(text, ofh)
+		return err
 	}
 	/* if dir was unspecified, we used os.MkdirTemp(), which invoked os.Mkdir(), so
 	 * cleanup should be done even if os.Chdir() fails
@@ -337,6 +350,7 @@ func generateOutput(g *mathgen.Generator) error {
 	if setupDir() {
 		defer os.RemoveAll(dir)
 	}
+
 	printVerboseF("dir: %s", dir)
 	oldDir := mustGetWd()
 	if err = os.Chdir(dir); err != nil {
@@ -380,11 +394,6 @@ func generateOutput(g *mathgen.Generator) error {
 		return err
 	}
 
-	// use ofh when mode is pdf or zip
-	var ofh io.Writer
-	if ofh, err = outputFh(); err != nil {
-		return err
-	}
 	switch mode {
 	case "pdf":
 		if err = copyPdf(ofh, basename+".pdf"); err != nil {
@@ -396,19 +405,13 @@ func generateOutput(g *mathgen.Generator) error {
 		}); err != nil {
 			return err
 		}
+	case "view":
+		runApp(viewer, basename+".pdf") // ignore error
 	}
-	ofhFile, ok := ofh.(*os.File)
-	if ok {
-		if err = ofhFile.Close(); err != nil {
-			return fmt.Errorf("close %s: %w", output, err)
-		}
-	}
-	if mode == "view" {
-		runApp(viewer, basename+".pdf") // discard error
-	}
-
 	return nil
-	// (defer restores cwd here)
+	// [defer] (restore cwd)
+	// [defer] (rm -rf workdir)
+	// [defer] (close output && delete if error)
 }
 
 func main() {
