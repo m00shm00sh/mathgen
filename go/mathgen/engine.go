@@ -30,11 +30,6 @@ import (
 
 type empty struct{}
 
-type loggable struct {
-	logger    *log.Logger
-	verbosity Verbosity
-}
-
 type GeneratorBuilder struct {
 	loggable
 	fh      io.Reader
@@ -58,7 +53,7 @@ func (b *GeneratorBuilder) SetInputStream(fh io.Reader) *GeneratorBuilder {
 	return b
 }
 func (b *GeneratorBuilder) SetLogger(l *log.Logger) *GeneratorBuilder {
-	b.logger = l
+	b.loggable.SetLogger(l)
 	return b
 }
 func (b *GeneratorBuilder) SetVerbosity(v Verbosity) *GeneratorBuilder {
@@ -157,32 +152,6 @@ func (g *Generator) appendRule(name string, ruleItem string) {
 func (g *Generator) appendDupRule(name string, ruleItem string) {
 	items := g.dupRules[name]
 	g.dupRules[name] = append(items, ruleItem)
-}
-
-func (g *Generator) logPanic(v ...any) {
-	g.logger.Panic(v)
-}
-func (g *Generator) logInfo(v ...any) {
-	if g.verbosity >= Info {
-		a := slices.Concat([]any{"I:"}, v)
-		g.logger.Println(a...)
-	}
-}
-func (g *Generator) logVerbose(v ...any) {
-	if g.verbosity >= Verbose {
-		a := slices.Concat([]any{"V:"}, v)
-		g.logger.Println(a...)
-	}
-}
-func (g *Generator) logDebugF(fmt string, v ...any) {
-	if g.verbosity >= Debug {
-		g.logger.Printf("D: "+fmt, v...)
-	}
-}
-func (g *Generator) logDebugFunc(f func() string) {
-	if g.verbosity >= Debug {
-		g.logger.Println("D:", f())
-	}
 }
 
 func (g *Generator) readRulesFile(fh io.Reader) {
