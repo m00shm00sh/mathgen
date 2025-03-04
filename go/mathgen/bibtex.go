@@ -19,20 +19,18 @@ import (
 
 var bibtexExtractCitationRx = regexp.MustCompile(rxFlagI + `(cite\:\d+)[,\}]`)
 
-func (g *Generator) GenerateBibtex(text string) string {
+func (g *GeneratorWorker) GenerateBibtex(text string) string {
 	labels := make(map[string]empty)
 	for _, m := range bibtexExtractCitationRx.FindAllStringSubmatchIndex(text, -1) {
 		labels[text[m[2]:m[3]]] = empty{}
 	}
 
 	var b strings.Builder
-	// create the rule entry and save&regenerate tokenRx once for efficiency
-	g.rules["CITE_LABEL_GIVEN"] = []string{""}
-	defer delete(g.rules, "CITE_LABEL_GIVEN")
-	oldRx := g.generateTokenRx()
-	defer func() { g.tokenRx = oldRx }()
+	g.auxRules["CITE_LABEL_GIVEN"] = make([]string, 1)
+	// probably unnecessary delete
+	defer delete(g.auxRules, "CITE_LABEL_GIVEN")
 	for k := range maps.Keys(labels) {
-		g.rules["CITE_LABEL_GIVEN"][0] = k
+		g.auxRules["CITE_LABEL_GIVEN"][0] = k
 		b.WriteString(g.GeneratePrettyString("bibtex"))
 	}
 	return b.String()

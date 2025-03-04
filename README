@@ -94,18 +94,21 @@ A quick road map to the files in the source distribution:
 - go/main.go: driver
 - go/mathgen/: the `mathgen` module
 - go/mathgen/bibtex.go: bibtex generator
-  - (*Generator) GenerateBibtex (string) string
+  - (*GeneratorWorker) GenerateBibtex (string) string
 - go/mathgen/engine.go: main engine
-  - `GeneratorBuilder`: builder struct (no exported members)
-  - `Generator`: main generator (no exported members); concurrent use of same Generator will not work
+  - `GeneratorBuilder`: builder struct for preparing rule reading
+    - `Input`: main input file `io.Reader`
+    - `AddBibtexPlaceholder`: if `true`, prepare the rules for an auxiliary Bibtex pass
+  - `Generator`: main generator; holds rule patterns and worker setup recipes;
+                 multiple expansions can be done from the same Generator provided the GeneratorWorker is not shared
   - `NewGeneratorBuilder`: create a new builder with default values
-  - `(*GeneratorBuilder) SetInputStream`: set input stream of main rules file
   - `(*GeneratorBuilder) SetLogger`: set logger
   - `(*GeneratorBuilder) SetVerbosity`: set verbosity level; support for changing level after generator is built is missing
-  - `(*GeneratorBuilder) SetRngSeed`: set seed
-  - `(*GeneratorBuilder) RngSeed`: get seed (useful if generated from default)
   - `(*GeneratorBuilder) SetAuthors`: set authors
-  - `(*GeneratorBuilder) Build`: create a Generator ready to generate output given start token; reading from input stream happens here
+  - `(*GeneratorBuilder) Build`: build a `Generator` created from input in Builder
+  - `GeneratorWorker`: per-expansion worker
+  - `(*Generator) NewWorker`: create a new worker ready to start expanding
+  - `(*Generator) Seed`: get the seed value in use
   - `(*Generator) GenerateString`: generate string given start token
   - `(*Generator) GenerateText` generate string with start token `START`
 - go/mathgen/latexpretty.go: LaTeX pretty printing

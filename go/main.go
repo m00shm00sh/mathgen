@@ -12,10 +12,9 @@ package main
 
 import (
 	"archive/zip"
-	"flag"
 	"errors"
+	"flag"
 	"fmt"
-	"github.com/m00shm00sh/mathgen/go/mathgen"
 	"io"
 	"io/fs"
 	"os"
@@ -24,6 +23,8 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"github.com/m00shm00sh/mathgen/go/mathgen"
 )
 
 const (
@@ -314,7 +315,7 @@ func runApp(cmd string, a ...string) error {
 	return nil
 }
 
-func generateOutput(g *mathgen.Generator) error {
+func generateOutput(g *mathgen.GeneratorWorker) error {
 	var err error
 	text := g.GeneratePrettyString(products[product])
 	var ofh io.Writer
@@ -322,7 +323,7 @@ func generateOutput(g *mathgen.Generator) error {
 	if ofh, err = outputFh(); err != nil {
 		return err
 	}
-	defer func () {
+	defer func() {
 		ofhFile, isFile := ofh.(*os.File)
 		if isFile {
 			if err = ofhFile.Close(); err != nil {
@@ -417,11 +418,6 @@ func generateOutput(g *mathgen.Generator) error {
 func main() {
 	doArgs()
 	gb := mathgen.NewGeneratorBuilder()
-	if seed > 0 {
-		gb.SetRngSeed(seed)
-	} else {
-		seed = gb.RngSeed()
-	}
 	printVerboseF("seed = %d", seed)
 	if len(authors) > 0 {
 		gb.SetAuthors(authors)
@@ -434,9 +430,14 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("open %s: %w", ruleFileName, err))
 	}
-	gb.SetInputStream(fh)
+	gb.Input = fh
+	if product != "blurb" {
+		gb.AddBibtexPlaceholder = true
+	}
 	g := gb.Build()
-	if err = generateOutput(g); err != nil {
+	gw := g.NewWorker(seed)
+	seed = gw.Seed()
+	if err = generateOutput(gw); err != nil {
 		// we're in main and have no desire for more refined error handling
 		panic(err)
 	}

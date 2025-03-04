@@ -30,11 +30,12 @@ import (
 
 type empty struct{}
 
+// builder for reading input and generating token rules
 type GeneratorBuilder struct {
 	loggable
-	fh      io.Reader
-	seed    int64
-	authors []string
+	Input                io.Reader
+	authors              []string
+	AddBibtexPlaceholder bool
 }
 
 func NewGeneratorBuilder() *GeneratorBuilder {
@@ -43,15 +44,11 @@ func NewGeneratorBuilder() *GeneratorBuilder {
 			logger:    log.Default(),
 			verbosity: None,
 		},
-		fh:      os.Stdin,
-		seed:    rand.Int63(),
+		Input:   os.Stdin,
 		authors: []string{"AUTHOR"},
 	}
 }
-func (b *GeneratorBuilder) SetInputStream(fh io.Reader) *GeneratorBuilder {
-	b.fh = fh
-	return b
-}
+
 func (b *GeneratorBuilder) SetLogger(l *log.Logger) *GeneratorBuilder {
 	b.loggable.SetLogger(l)
 	return b
@@ -59,13 +56,6 @@ func (b *GeneratorBuilder) SetLogger(l *log.Logger) *GeneratorBuilder {
 func (b *GeneratorBuilder) SetVerbosity(v Verbosity) *GeneratorBuilder {
 	b.verbosity = v
 	return b
-}
-func (b *GeneratorBuilder) SetRngSeed(r int64) *GeneratorBuilder {
-	b.seed = r
-	return b
-}
-func (b *GeneratorBuilder) RngSeed() int64 {
-	return b.seed
 }
 func (b *GeneratorBuilder) SetAuthors(a []string) *GeneratorBuilder {
 	if a == nil {
@@ -75,33 +65,47 @@ func (b *GeneratorBuilder) SetAuthors(a []string) *GeneratorBuilder {
 	return b
 }
 
+// built set of rules; a seed value and st
 type Generator struct {
 	loggable
-	rules        map[string][]string
-	numRules     map[string]int
-	dupRules     map[string][]string
-	handledFiles map[string]empty
 	tokenRx      *regexp.Regexp
-	rng          *rand.Rand
+	handledFiles map[string]empty
+	rules        map[string][]string
+	dupRuleNames map[string]empty
+}
+
+type GeneratorWorker struct {
+	Generator
+	// track numbers for TOKEN+ and TOKEN* rules
+	numRules map[string]int
+	// track expansions for TOKEN! rules
+	dupRules map[string][]string
+	// track auxiliary rules where tokenRx was generated with placeholder-only tokens;
+	// presently, this is "SEED" and "CITE_LABEL_GIVEN"
+	auxRules map[string][]string
+	// code that used default-generated seed may want to query its value
+	seed int64
+	rng  *rand.Rand
 }
 
 func (b *GeneratorBuilder) Build() *Generator {
-	seed := b.seed
 	g := Generator{
-		loggable: b.loggable,
-		rng:      rand.New(rand.NewSource(seed)),
-
-		rules:        make(map[string][]string),
-		numRules:     make(map[string]int),
-		dupRules:     make(map[string][]string),
+		loggable:     b.loggable,
 		handledFiles: make(map[string]empty),
+		rules:        make(map[string][]string),
+		dupRuleNames: make(map[string]empty),
 	}
-	g.logInfo("seed =", seed)
-	g.rules["SEED"] = []string{strconv.FormatInt(seed, 10)}
-	if b.fh == nil {
-		panic("empty rules reader")
+
+	g.rules["SEED"] = []string{}
+	if b.AddBibtexPlaceholder {
+		g.rules["CITE_LABEL_GIVEN"] = []string{}
 	}
-	g.readRulesFile(b.fh)
+	if b.Input == nil {
+		panic("empty rules input")
+	}
+	g.readRulesFile(b.Input)
+	// discard unneeded handled files after outermost readRulesFile
+	g.handledFiles = nil
 	g.addAuthorsRule(b.authors)
 	g.addYearRule()
 	g.generateTokenRx()
@@ -122,6 +126,32 @@ func (b *GeneratorBuilder) Build() *Generator {
 		return b.String()
 	})
 	return &g
+}
+
+func (g *Generator) NewWorker(seed int64) *GeneratorWorker {
+	if seed == 0 {
+		seed = rand.Int63()
+	}
+	gw := GeneratorWorker{
+		Generator: *g,
+		numRules:  make(map[string]int),
+		dupRules:  make(map[string][]string),
+		auxRules:  make(map[string][]string),
+		seed:      seed,
+		rng:       rand.New(rand.NewSource(seed)),
+	}
+	// (*GeneratorBuilder).Build() gave us a set of key names to populate dupRules with
+	for k := range g.dupRuleNames {
+		g.logDebugF("dupRule %s", k)
+		gw.appendDupRule(k, "")
+	}
+
+	g.logInfo("seed =", seed)
+	gw.auxRules["SEED"] = []string{strconv.FormatInt(seed, 10)}
+	return &gw
+}
+func (g *GeneratorWorker) Seed() int64 {
+	return g.seed
 }
 
 func fileIterator(l *log.Logger, fh io.Reader) iter.Seq[string] {
@@ -149,7 +179,7 @@ func (g *Generator) appendRule(name string, ruleItem string) {
 	items := g.rules[name]
 	g.rules[name] = append(items, ruleItem)
 }
-func (g *Generator) appendDupRule(name string, ruleItem string) {
+func (g *GeneratorWorker) appendDupRule(name string, ruleItem string) {
 	items := g.dupRules[name]
 	g.dupRules[name] = append(items, ruleItem)
 }
@@ -171,7 +201,7 @@ func (g *Generator) readRulesFile(fh io.Reader) {
 		// each expansion instance produces a different substitution
 		if m := readRulesNoDuplicateRuleRx.FindStringSubmatch(name); m != nil {
 			name = m[1]
-			g.appendDupRule(name, "")
+			g.dupRuleNames[name] = empty{}
 			continue
 		}
 
@@ -290,6 +320,7 @@ func pickRand(r *rand.Rand, s []string) string {
 }
 
 // (inTok) -> {pre, rule, post}
+// this works on tokenRx without any of the aux maps so no need for GeneratorWorker
 func (g *Generator) popFirstRule(inTok string) []string {
 	var pre string
 	var rule string
@@ -308,22 +339,18 @@ func (g *Generator) popFirstRule(inTok string) []string {
 	return nil
 }
 
-func (g *Generator) GenerateString(startToken string) string {
+func (g *GeneratorWorker) GenerateString(startToken string) string {
 	g.logDebugF("tokenRx = %v", g.tokenRx)
 	s := g.expandRecursively(startToken)
-	// is this necessary? might be needed during bibtex pass
-	//clear(g.numRules)
-	// need to separate dups created during rule reading from dups created during expansion
-	//clear(g.dupRules)
 	return s
 }
-func (g *Generator) GenerateText() string {
+func (g *GeneratorWorker) GenerateText() string {
 	return g.GenerateString("START")
 }
 
 var expandRecursivelyCheckSpecialRuleRx = regexp.MustCompile(`(.*)([+#])$`)
 
-func (g *Generator) expandRecursively(start string) string {
+func (g *GeneratorWorker) expandRecursively(start string) string {
 	/* check for special rules ending in + and #
 	 * Rules ending in + generate a sequential integer
 	 * The same rule ending in # chooses a random # from among preiously generated integers
@@ -345,7 +372,15 @@ func (g *Generator) expandRecursively(start string) string {
 	var doRepeat = true
 	var count int
 	for doRepeat {
-		inputTok := pickRand(g.rng, g.rules[start])
+		auxVals, isAux := g.auxRules[start]
+		var ruleResult []string
+		if isAux {
+			g.logDebugF("auxRule %s\n", start)
+			ruleResult = auxVals
+		} else {
+			ruleResult = g.rules[start]
+		}
+		inputTok := pickRand(g.rng, ruleResult)
 		count += 1
 		g.logDebugF("expand: %s -> %v", start, inputTok)
 

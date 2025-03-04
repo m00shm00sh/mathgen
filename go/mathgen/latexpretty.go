@@ -20,7 +20,7 @@ import (
 	"unicode/utf8"
 )
 
-func (g *Generator) GeneratePrettyString(pretty string) string {
+func (g *GeneratorWorker) GeneratePrettyString(pretty string) string {
 	var s string
 	if strings.Contains(pretty, "latex") {
 		s = g.GenerateString("START")
@@ -36,6 +36,7 @@ func (g *Generator) GeneratePrettyString(pretty string) string {
 // s/PATTERN/g[1]g[2]n g[3]/g
 // ReplaceAllString(_, `$1$2n$3`)
 var ppLatexRx1 = regexp.MustCompile(rxFlagI + `(\b)(a)((?:\s+)(?:\\[^\s\{]+\{)?(?:[aeiou]))`)
+
 const ppLatexRx1Repl = `$1$2n $3`
 
 // extract heading
@@ -44,18 +45,21 @@ var ppLatexExtractHeadingRx = regexp.MustCompile(`(\\(?:sci)?(?:(?:(?:sub)?secti
 // replace "so then $$x=y$$." with "so then $$x=y.$$"
 // ReplaceAllString(_, `$2$1`)
 var ppLatexRx3 = regexp.MustCompile(`(\$\$|\\end\{align\*\})\s*([,.;:!?])`)
+
 const ppLatexRx3Repl = `$2$1`
 
 // fix "foo , bar"
 // s/PATTERN/$1/g
 // ReplaceAllString(_, `$1`)
 var ppCommonRx1 = regexp.MustCompile(`\s+([,.\-!?\';:])`)
+
 const ppCommonRx1Repl = `$1`
 
 // fix "foo- bar"
 // s/PATTERN/-/g
 // ReplaceAllString(_, `-`)
 var ppCommonRx2 = regexp.MustCompile(`-\s+`)
+
 const ppCommonRx2Repl = `-`
 
 func matchNonSpace(r rune) bool {
@@ -79,7 +83,7 @@ func prettyPrintLatex(l *loggable, s, pretty string) string {
 		line = ppLatexRx1.ReplaceAllString(line, ppLatexRx1Repl)
 		var newline string
 		if mi := ppLatexExtractHeadingRx.FindStringSubmatchIndex(line); mi != nil {
-			unreachable(len(mi) != 6, "unexpected match")	
+			unreachable(len(mi) != 6, "unexpected match")
 			command := strings.TrimSpace(line[mi[2]:mi[3]])
 			title := strings.TrimSpace(line[mi[4]:mi[5]])
 			title = enTitle(title)
@@ -219,6 +223,7 @@ func enBracket(s string) string {
 
 // helpers for enTitle, enSentence
 var splitWordsRx = regexp.MustCompile(`([\s-]+)`)
+
 func splitWords(s string) []string {
 	return splitStringCapturingSubmatch(splitWordsRx, s, -1)
 }
