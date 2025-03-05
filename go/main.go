@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,7 +39,7 @@ const (
 type empty struct{}
 
 func genModes() map[string]empty {
-	modesA := strings.Fields(`pdf zip dir view raw`)
+	modesA := strings.Fields(`pdf zip fullzip view raw`)
 	m := make(map[string]empty)
 	for _, w := range modesA {
 		m[w] = empty{}
@@ -60,7 +61,6 @@ var (
 	authors   authorsT
 	mode      string
 	viewer    string
-	dir       string
 	output    string
 	product   string
 	seed      int64
@@ -149,11 +149,10 @@ Default: One random author`)
 		`what to output
  pdf: PDF file
  zip: Zip file with LaTeX/BiBTeX source and PDF
- dir: leave source and PDF in directory specified with -dir
+ fullzip: Zip file with LaTex/BiBTeX source and generated files
  view: invoke viewer on PDF file
  raw: output raw TeX/txt only (required for product=blurb)`)
 	flag.StringVar(&viewer, "viewer", defaultViewer, "program to use as PDF viewer")
-	flag.StringVar(&dir, "dir", "", "specify output directory when mode=dir")
 	flag.StringVar(&output, "output", "",
 		`specify output file when mode=pdf|zip|raw
  use - for stdout`)
@@ -185,24 +184,17 @@ Default: One random author`)
 	}
 }
 
-// if true, must defer os.RemoveAll(dir)
-func setupDir() bool {
-	if len(dir) == 0 {
-		pid := strconv.Itoa(os.Getpid())
-		seedS := strconv.FormatInt(seed, 10)
-		var err error
-		patternBase := []string{"mathgen-go.", pid, "-", seedS, "."}
-		mktempPattern := strings.Join(patternBase, "")
-		dir, err = os.MkdirTemp(os.TempDir(), mktempPattern)
-		if err != nil {
-			panic(fmt.Sprintf("mkdirtemp: %v", err))
-		}
-		if verbosity >= mathgen.Verbose {
-			return false
-		}
-		return true
+func setupDir() (string, error) {
+	pid := strconv.Itoa(os.Getpid())
+	seedS := strconv.FormatInt(seed, 10)
+	var err error
+	patternBase := []string{"mathgen-go.", pid, "-", seedS, "."}
+	mktempPattern := strings.Join(patternBase, "")
+	dir, err := os.MkdirTemp(os.TempDir(), mktempPattern)
+	if err != nil {
+		return "", fmt.Errorf("mkdirtemp: %v", err)
 	}
-	return false
+	return dir, nil
 }
 
 func outputFh() (io.Writer, error) {
@@ -227,14 +219,8 @@ func mustGetWd() string {
 	}
 	return thisDir
 }
-func requireInWorkDir() {
-	thisDir := mustGetWd()
-	if thisDir != dir {
-		panic(fmt.Errorf("expected dir %s but got %s", dir, thisDir))
-	}
-}
+
 func copyPdf(out io.Writer, inPdfName string) error {
-	requireInWorkDir()
 	var err error
 	var in *os.File
 	in, err = os.Open(inPdfName)
@@ -251,7 +237,6 @@ func copyPdf(out io.Writer, inPdfName string) error {
 }
 func makeZip(out io.Writer, files []string) error {
 	printVerboseF("makeZip")
-	requireInWorkDir()
 	zw := zip.NewWriter(out)
 	for _, fName := range files {
 		var err error
@@ -286,9 +271,6 @@ func writeToFh(contents string, fh io.Writer) error {
 }
 func writeToFile(contents, filename string) error {
 	printVerboseF("writeToFile: %s", filename)
-	if mode != "raw" {
-		requireInWorkDir()
-	}
 	f, err := os.Create(filename)
 	if err != nil {
 		return fmt.Errorf("writeToFile: open %s: %w", filename, err)
@@ -308,7 +290,13 @@ func runApp(cmd string, a ...string) error {
 	out, err := c.CombinedOutput()
 	if err != nil {
 		if execErr, ok := err.(*exec.ExitError); ok {
-			return fmt.Errorf("%s\n[dir=%s] %s failed: %s", out, dir, c, execErr.Error())
+			dir, getWdErr := os.Getwd()
+			cmdErr := fmt.Errorf("%s\n[dir=%s] %s failed: %s", out, dir, c, execErr.Error())
+			if getWdErr != nil {
+				return errors.Join(fmt.Errorf("getwd: %w", getWdErr), cmdErr)
+			} else {
+				return cmdErr
+			}
 		}
 		return err
 	}
@@ -318,12 +306,14 @@ func runApp(cmd string, a ...string) error {
 func generateOutput(g *mathgen.GeneratorWorker) error {
 	var err error
 	text := g.GeneratePrettyString(products[product])
+	var dir string
 	var ofh io.Writer
 	// get output fh before chdir
 	if ofh, err = outputFh(); err != nil {
 		return err
 	}
 	defer func() {
+		// close file in all cases
 		ofhFile, isFile := ofh.(*os.File)
 		if isFile {
 			if err = ofhFile.Close(); err != nil {
@@ -333,6 +323,7 @@ func generateOutput(g *mathgen.GeneratorWorker) error {
 		if err == nil {
 			return
 		}
+		// undo write in error case
 		if isFile {
 			if err = os.Remove(output); err != nil {
 				if !errors.Is(err, fs.ErrNotExist) {
@@ -345,14 +336,15 @@ func generateOutput(g *mathgen.GeneratorWorker) error {
 		err = writeToFh(text, ofh)
 		return err
 	}
-	/* if dir was unspecified, we used os.MkdirTemp(), which invoked os.Mkdir(), so
-	 * cleanup should be done even if os.Chdir() fails
-	 */
-	if setupDir() {
-		defer os.RemoveAll(dir)
+	dir, err = setupDir()
+	if err != nil {
+		return fmt.Errorf("setupdir: %w", err)
 	}
-
-	printVerboseF("dir: %s", dir)
+	if verbosity < mathgen.Verbose {
+		defer os.RemoveAll(dir)
+	} else {
+		printVerboseF("workdir: %s", dir)
+	}
 	oldDir := mustGetWd()
 	if err = os.Chdir(dir); err != nil {
 		/* dir may be user controlled without validation, and if it was validated, it would
@@ -404,6 +396,15 @@ func generateOutput(g *mathgen.GeneratorWorker) error {
 		if err = makeZip(ofh, []string{
 			basename + ".tex", basename + ".pdf", bibName, "README",
 		}); err != nil {
+			return err
+		}
+	case "fullzip":
+		var files []string
+		files, err = filepath.Glob(basename + ".???")
+		if err != nil {
+			return fmt.Errorf("glob: %w", err)
+		}
+		if err = makeZip(ofh, append(files, []string{bibName, "README"}...)); err != nil {
 			return err
 		}
 	case "view":
