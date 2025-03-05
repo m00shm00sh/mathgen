@@ -34,7 +34,6 @@ type empty struct{}
 type GeneratorBuilder struct {
 	loggable
 	Input                io.Reader
-	authors              []string
 	AddBibtexPlaceholder bool
 }
 
@@ -44,8 +43,7 @@ func NewGeneratorBuilder() *GeneratorBuilder {
 			logger:    log.Default(),
 			verbosity: None,
 		},
-		Input:   os.Stdin,
-		authors: []string{"AUTHOR"},
+		Input: os.Stdin,
 	}
 }
 
@@ -55,13 +53,6 @@ func (b *GeneratorBuilder) SetLogger(l *log.Logger) *GeneratorBuilder {
 }
 func (b *GeneratorBuilder) SetVerbosity(v Verbosity) *GeneratorBuilder {
 	b.verbosity = v
-	return b
-}
-func (b *GeneratorBuilder) SetAuthors(a []string) *GeneratorBuilder {
-	if a == nil {
-		panic("nil authors")
-	}
-	b.authors = a
 	return b
 }
 
@@ -81,12 +72,21 @@ type GeneratorWorker struct {
 	// track expansions for TOKEN! rules
 	dupRules map[string][]string
 	// track auxiliary rules where tokenRx was generated with placeholder-only tokens;
-	// presently, this is "SEED" and "CITE_LABEL_GIVEN"
+	// see placeholderRules
 	auxRules map[string][]string
 	// code that used default-generated seed may want to query its value
 	seed int64
 	rng  *rand.Rand
 }
+
+var (
+	placeholderRules = []string{
+		"SEED",
+		"SCI_YEAR",
+		"SCIAUTHORS", "AUTHOR_NAME",
+	}
+	defaultAuthors = []string{"AUTHOR"}
+)
 
 func (b *GeneratorBuilder) Build() *Generator {
 	g := Generator{
@@ -95,10 +95,10 @@ func (b *GeneratorBuilder) Build() *Generator {
 		rules:        make(map[string][]string),
 		dupRuleNames: make(map[string]empty),
 	}
-
-	g.rules["SEED"] = []string{}
 	if b.AddBibtexPlaceholder {
-		g.rules["CITE_LABEL_GIVEN"] = []string{}
+		g.addPlaceholderRules(append(placeholderRules, "CITE_LABEL_GIVEN"))
+	} else {
+		g.addPlaceholderRules(placeholderRules)
 	}
 	if b.Input == nil {
 		panic("empty rules input")
@@ -106,8 +106,6 @@ func (b *GeneratorBuilder) Build() *Generator {
 	g.readRulesFile(b.Input)
 	// discard unneeded handled files after outermost readRulesFile
 	g.handledFiles = nil
-	g.addAuthorsRule(b.authors)
-	g.addYearRule()
 	g.generateTokenRx()
 	g.logDebugFunc(func() string {
 		var b strings.Builder
@@ -128,7 +126,14 @@ func (b *GeneratorBuilder) Build() *Generator {
 	return &g
 }
 
-func (g *Generator) NewWorker(seed int64) *GeneratorWorker {
+func (g *Generator) addPlaceholderRules(names []string) {
+	for _, s := range names {
+		g.rules[s] = []string{}
+	}
+}
+
+// Create a new instance of a worker. Pass seed=0 to use default seed and authors=nil to use a random author name.
+func (g *Generator) NewWorker(seed int64, authors []string) *GeneratorWorker {
 	if seed == 0 {
 		seed = rand.Int63()
 	}
@@ -148,6 +153,28 @@ func (g *Generator) NewWorker(seed int64) *GeneratorWorker {
 
 	g.logInfo("seed =", seed)
 	gw.auxRules["SEED"] = []string{strconv.FormatInt(seed, 10)}
+	if len(authors) > 0 {
+		gw.addAuthorsRule(authors)
+	} else {
+		gw.addAuthorsRule(defaultAuthors)
+	}
+	gw.addYearRule()
+	gw.logDebugFunc(func() string {
+		var b strings.Builder
+		rKeys := slices.Collect(maps.Keys(gw.auxRules))
+		slices.SortFunc(rKeys, func(a, b string) int {
+			return strings.Compare(a, b)
+		})
+		b.WriteString("dump auxrules\n")
+		for _, k := range rKeys {
+			b.WriteString("* rule: ")
+			b.WriteString(k)
+			b.WriteString(" -> ")
+			b.WriteString(cleanupNewlines(strings.Join(gw.auxRules[k], "|")))
+			b.WriteRune('\n')
+		}
+		return b.String()
+	})
 	return &gw
 }
 func (g *GeneratorWorker) Seed() int64 {
@@ -279,9 +306,10 @@ func (g *Generator) generateTokenRx() *regexp.Regexp {
 	return old
 }
 
-func (g *Generator) addYearRule() {
+func (g *GeneratorWorker) addYearRule() {
 	yearRule := make([]string, 0)
 
+	// doing the year rule every iteration is inefficient; should year be cached?
 	thisYear := time.Now().Year()
 
 	// we wish to have entries for each of the last 100 years, with
@@ -299,10 +327,10 @@ func (g *Generator) addYearRule() {
 		yearRule = slices.Concat(yearRule, slices.Repeat(y_asStrSlice, int(n)))
 	}
 
-	g.rules["SCI_YEAR"] = yearRule
+	g.auxRules["SCI_YEAR"] = yearRule
 }
 
-func (g *Generator) addAuthorsRule(a []string) {
+func (g *GeneratorWorker) addAuthorsRule(a []string) {
 	lastA, otherA := a[len(a)-1], a[:len(a)-1]
 	var sb strings.Builder
 	if len(otherA) > 0 {
@@ -310,8 +338,8 @@ func (g *Generator) addAuthorsRule(a []string) {
 		sb.WriteString(" and ")
 	}
 	sb.WriteString(lastA)
-	g.rules["AUTHOR_NAME"] = a
-	g.rules["SCIAUTHORS"] = []string{sb.String()}
+	g.auxRules["AUTHOR_NAME"] = a
+	g.auxRules["SCIAUTHORS"] = []string{sb.String()}
 }
 
 func pickRand(r *rand.Rand, s []string) string {

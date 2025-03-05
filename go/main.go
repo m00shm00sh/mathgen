@@ -400,9 +400,6 @@ func main() {
 	doArgs()
 	gb := mathgen.NewGeneratorBuilder()
 	printVerboseF("seed = %d", seed)
-	if len(authors) > 0 {
-		gb.SetAuthors(authors)
-	}
 	if verbosity != mathgen.None {
 		gb.SetVerbosity(verbosity)
 	}
@@ -416,7 +413,7 @@ func main() {
 		gb.AddBibtexPlaceholder = true
 	}
 	g := gb.Build()
-	gw := g.NewWorker(seed)
+	gw := g.NewWorker(seed, authors)
 	seed = gw.Seed()
 	if err = generateOutput(gw); err != nil {
 		// we're in main and have no desire for more refined error handling
