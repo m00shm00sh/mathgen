@@ -212,14 +212,6 @@ func outputFh() (io.Writer, error) {
 	}
 }
 
-func mustGetWd() string {
-	thisDir, err := os.Getwd()
-	if err != nil {
-		panic(fmt.Errorf("getwd: %w", err))
-	}
-	return thisDir
-}
-
 func copyPdf(out io.Writer, inPdfName string) error {
 	var err error
 	var in *os.File
@@ -284,19 +276,14 @@ func writeToFile(contents, filename string) error {
 	return nil
 }
 
-func runApp(cmd string, a ...string) error {
+func runApp(dir string, cmd string, a ...string) error {
 	printVerboseF("runApp: %s %v", cmd, a)
 	c := exec.Command(cmd, a...)
+	c.Dir = dir
 	out, err := c.CombinedOutput()
 	if err != nil {
 		if execErr, ok := err.(*exec.ExitError); ok {
-			dir, getWdErr := os.Getwd()
-			cmdErr := fmt.Errorf("%s\n[dir=%s] %s failed: %s", out, dir, c, execErr.Error())
-			if getWdErr != nil {
-				return errors.Join(fmt.Errorf("getwd: %w", getWdErr), cmdErr)
-			} else {
-				return cmdErr
-			}
+			return fmt.Errorf("%s\n[dir=%s] %s failed: %s", out, dir, c, execErr.Error())
 		}
 		return err
 	}
@@ -306,7 +293,7 @@ func runApp(cmd string, a ...string) error {
 func generateOutput(g *mathgen.GeneratorWorker) error {
 	var err error
 	text := g.GeneratePrettyString(products[product])
-	var dir string
+	var workDir string
 	var ofh io.Writer
 	// get output fh before chdir
 	if ofh, err = outputFh(); err != nil {
@@ -336,60 +323,53 @@ func generateOutput(g *mathgen.GeneratorWorker) error {
 		err = writeToFh(text, ofh)
 		return err
 	}
-	dir, err = setupDir()
+	workDir, err = setupDir()
 	if err != nil {
 		return fmt.Errorf("setupdir: %w", err)
 	}
 	if verbosity < mathgen.Verbose {
-		defer os.RemoveAll(dir)
+		defer os.RemoveAll(workDir)
 	} else {
-		printVerboseF("workdir: %s", dir)
+		printVerboseF("workdir: %s", workDir)
 	}
-	oldDir := mustGetWd()
-	if err = os.Chdir(dir); err != nil {
-		/* dir may be user controlled without validation, and if it was validated, it would
-		 * be prone a TOCTOU;
-		 * fail as if invalid argument instead of unexpected state
-		 */
-		return fmt.Errorf("chdir %s: %v", dir, err)
-	}
-	defer os.Chdir(oldDir)
+	// for files, remove reliance on workdir by using a wrapper that prepends dir to path
+	workFile := func(basename string) string { return filepath.Join(workDir, basename) }
 	basename := "mathgen-" + strconv.FormatInt(seed, 10)
-	if err = writeToFile(text, basename+".tex"); err != nil {
+	if err = writeToFile(text, workFile(basename+".tex")); err != nil {
 		return err
 	}
 	bibText := g.GenerateBibtex(text)
-	if err = writeToFile(bibText, bibName); err != nil {
+	if err = writeToFile(bibText, workFile(bibName)); err != nil {
 		return err
 	}
-	if err = runApp("pdflatex", "-halt-on-error", basename); err != nil {
+	if err = runApp(workDir, "pdflatex", "-halt-on-error", basename); err != nil {
 		return err
 	}
-	if err = runApp("bibtex", basename); err != nil {
+	if err = runApp(workDir, "bibtex", basename); err != nil {
 		return err
 	}
 	if product == "book" {
-		if err = runApp("makeindex", basename+".idx"); err != nil {
+		if err = runApp(workDir, "makeindex", basename+".idx"); err != nil {
 			return err
 		}
 	}
-	if err = runApp("pdflatex", "-halt-on-error", basename); err != nil {
+	if err = runApp(workDir, "pdflatex", "-halt-on-error", basename); err != nil {
 		return err
 	}
-	if err = runApp("pdflatex", "-halt-on-error", basename); err != nil {
+	if err = runApp(workDir, "pdflatex", "-halt-on-error", basename); err != nil {
 		return err
 	}
 	var readmeText string
 	if readmeText, err = generateReadmeText(product, basename); err != nil {
 		return fmt.Errorf("generateReadmeText: %w", err)
 	}
-	if err = writeToFile(readmeText, "README"); err != nil {
+	if err = writeToFile(readmeText, workFile("README")); err != nil {
 		return err
 	}
 
 	switch mode {
 	case "pdf":
-		if err = copyPdf(ofh, basename+".pdf"); err != nil {
+		if err = copyPdf(ofh, workFile(basename+".pdf")); err != nil {
 			return err
 		}
 	case "zip":
@@ -400,7 +380,7 @@ func generateOutput(g *mathgen.GeneratorWorker) error {
 		}
 	case "fullzip":
 		var files []string
-		files, err = filepath.Glob(basename + ".???")
+		files, err = filepath.Glob(workFile(basename + ".???"))
 		if err != nil {
 			return fmt.Errorf("glob: %w", err)
 		}
@@ -408,7 +388,7 @@ func generateOutput(g *mathgen.GeneratorWorker) error {
 			return err
 		}
 	case "view":
-		runApp(viewer, basename+".pdf") // ignore error
+		runApp(workDir, viewer, basename+".pdf") // ignore error
 	}
 	return nil
 	// [defer] (restore cwd)
