@@ -91,10 +91,29 @@ Source code
 
 A quick road map to the files in the source distribution:
 
-- go/main.go: driver
+- go/main.go: command-line front-end
 - go/mathgen/: the `mathgen` module
 - go/mathgen/bibtex.go: bibtex generator
   - (*GeneratorWorker) GenerateBibtex (string) string
+- go/mathgen/driver.go: file production driver
+  - Product - product to generate
+    - Blurb - generate blurb
+    - Article - generate article
+    - Book - generate book
+    (all lowercase for string representation)
+  - OutputMode - output to generate
+    - Raw - raw output (for blurb)
+    - Pdf - pdf file output
+    - Zip - zip file output
+    - ZipAll - zip file containing all working files (for debugging)
+  - `Driver`: driver configuration struct
+    - `Product`: product to generate
+    - `OutputMode`: output mode
+    - `Seed`: seed; leave as zero to use default run-time generated value
+    - `Authors`: list of authors; leave as nil to use default random-generated name
+  - `NewDriver`: create new Driver
+  - `(*Driver) SetVerbosity`: set verbosity level
+  - `(*Driver) GenerateOutput`: produce output, returning Reader and last error
 - go/mathgen/engine.go: main engine
   - `GeneratorBuilder`: builder struct for preparing rule reading
     - `Input`: main input file `io.Reader`

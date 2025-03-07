@@ -275,7 +275,7 @@ func (g *Generator) readRulesFile(fh io.Reader) {
 			if err != nil {
 				g.logPanic(name, "int parse:", m[2], err)
 			}
-			g.logVerbose("weighting rule by ", weight, ":", name, "->", cleanupNewlines(rule))
+			g.logVerboseF("weighting rule by %d : %s -> %s", weight, name, cleanupNewlines(rule))
 		}
 		for weight > 0 {
 			weight -= 1

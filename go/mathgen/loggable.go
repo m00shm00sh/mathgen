@@ -39,10 +39,9 @@ func (l *loggable) logInfo(v ...any) {
 		l.logger.Println(a...)
 	}
 }
-func (l *loggable) logVerbose(v ...any) {
+func (l *loggable) logVerboseF(fmt string, v ...any) {
 	if l.verbosity >= Verbose {
-		a := slices.Concat([]any{"V:"}, v)
-		l.logger.Println(a...)
+		l.logger.Printf("V: "+fmt, v...)
 	}
 }
 func (l *loggable) logDebugF(fmt string, v ...any) {

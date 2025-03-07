@@ -12,6 +12,7 @@
 package mathgen
 
 import (
+	"os"
 	"strings"
 )
 
@@ -24,4 +25,22 @@ func unreachable(b bool, msg string) {
 
 func cleanupNewlines(s string) string {
 	return strings.ReplaceAll(s, "\n", "&")
+}
+
+func mustGetWd() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	return dir
+}
+
+// backmap constructor for bimaps
+func backMap[Map ~map[K]V, K comparable, V comparable](m Map) map[V]K {
+	bm := make(map[V]K)
+	for k := range m {
+		v := m[k]
+		bm[v] = k
+	}
+	return bm
 }
