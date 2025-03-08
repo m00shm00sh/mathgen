@@ -131,6 +131,11 @@ A quick road map to the files in the source distribution:
   - `(*Generator) GenerateString`: generate string given start token
   - `(*Generator) GenerateText` generate string with start token `START`
 - go/mathgen/latexpretty.go: LaTeX pretty printing
+  - Pretty - pretty printing to perform
+    - `PNone` - none
+    - `Platex` - article pretty-printing
+    - `Platexbook` - book pretty-printing
+    - `Pbibtex` - bibtex pretty-printing
   - `(*Generator) GeneratePrettyString`: generate LaTeX or Bibtex text with fixed formatting
 - go/mathgen/loggable.go: Internal logging helpers (no exported functions)
 - go/mathgen/re.go: internal regex helpers (no exported functions)

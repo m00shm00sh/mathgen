@@ -91,10 +91,10 @@ var (
 		Book:    "book",
 	}
 	productFromStr = backMap(productStr)
-	productPretty  = map[Product]string{ // key = product; value = pretty
-		Article: "latex",
-		Book:    "latexbook",
-		Blurb:   "",
+	productPretty  = map[Product]Pretty{
+		Article: Platex,
+		Book:    Platexbook,
+		Blurb:   Pnone,
 	}
 )
 

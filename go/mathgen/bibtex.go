@@ -31,7 +31,7 @@ func (g *GeneratorWorker) GenerateBibtex(text string) string {
 	defer delete(g.auxRules, "CITE_LABEL_GIVEN")
 	for k := range maps.Keys(labels) {
 		g.auxRules["CITE_LABEL_GIVEN"][0] = k
-		b.WriteString(g.GeneratePrettyString("bibtex"))
+		b.WriteString(g.GeneratePrettyString(Pbibtex))
 	}
 	return b.String()
 }

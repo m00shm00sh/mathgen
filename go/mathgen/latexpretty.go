@@ -20,13 +20,27 @@ import (
 	"unicode/utf8"
 )
 
-func (g *GeneratorWorker) GeneratePrettyString(pretty string) string {
-	var s string
-	if strings.Contains(pretty, "latex") {
-		s = g.GenerateString("START")
-		s = prettyPrintLatex(&g.loggable, s, pretty)
-	} else if pretty == "bibtex" {
-		s = g.GenerateString("BIBTEX_ENTRY")
+// pretty printing mode
+type Pretty int
+
+const (
+	Pnone Pretty = iota
+	Platex
+	Platexbook
+	Pbibtex
+)
+
+func (g *GeneratorWorker) GeneratePrettyString(p Pretty) string {
+	var startSym = "START"
+	switch p {
+	case Pbibtex:
+		startSym = "BIBTEX_ENTRY"
+	}
+	s := g.GenerateString(startSym)
+	switch p {
+	case Platex, Platexbook:
+		s = prettyPrintLatex(&g.loggable, s, p)
+	case Pbibtex:
 		s = prettyPrintBibtex(g.rng, s)
 	}
 	return s
@@ -66,7 +80,7 @@ func matchNonSpace(r rune) bool {
 	return !unicode.IsSpace(r)
 }
 
-func prettyPrintLatex(l *loggable, s, pretty string) string {
+func prettyPrintLatex(l *loggable, s string, p Pretty) string {
 	var sb strings.Builder
 	for _, line := range strings.Split(s, "\n") {
 		if l.verbosity >= Info {
@@ -87,7 +101,8 @@ func prettyPrintLatex(l *loggable, s, pretty string) string {
 			command := strings.TrimSpace(line[mi[2]:mi[3]])
 			title := strings.TrimSpace(line[mi[4]:mi[5]])
 			title = enTitle(title)
-			if pretty == "latexbook" {
+			switch p {
+			case Platexbook:
 				shortTitle := "\\truncate{0.75\\textwidth}{" + title + "}"
 				if strings.Contains(command, "title") {
 					newline = command + "{" + title + "}"
@@ -97,7 +112,7 @@ func prettyPrintLatex(l *loggable, s, pretty string) string {
 				} else {
 					newline = command + "[" + shortTitle + "]{" + title + "}"
 				}
-			} else {
+			default:
 				newline = command + "{" + title + "}"
 			}
 			if len(strings.TrimSpace(newline)) < 1 {
