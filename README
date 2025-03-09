@@ -91,6 +91,7 @@ Source code
 
 A quick road map to the files in the source distribution:
 
+- go/debugdriver.go: debug driver
 - go/main.go: command-line front-end
 - go/mathgen/: the `mathgen` module
 - go/mathgen/bibtex.go: bibtex generator
