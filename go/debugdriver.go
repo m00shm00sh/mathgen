@@ -81,13 +81,13 @@ var (
 	}
 )
 
-type authorsT []string
+type strSlice []string
 
-func (a *authorsT) Set(s string) error {
+func (a *strSlice) Set(s string) error {
 	*a = append(*a, s)
 	return nil
 }
-func (a *authorsT) String() string {
+func (a *strSlice) String() string {
 	return strings.Join(*a, ", ")
 }
 
@@ -97,7 +97,8 @@ var (
 	addBibtexPlaceholder bool
 	outMode              omode = om_raw
 	seed                 int64
-	authors              authorsT
+	authors              strSlice
+	incdir               strSlice
 )
 
 func pInfoF(f string, v ...any) {
@@ -113,13 +114,16 @@ func pDebugF(f string, v ...any) {
 
 func getGenerator() *mathgen.Generator {
 	s := productStrOrPath
+	var needDir = true
 	if err := (new(mathgen.Product)).Set(s); err == nil {
 		pDebugF("getGenerator: detected valid product; using product expansion")
 		if wd, err := os.Getwd(); err != nil {
 			panic(fmt.Errorf("getwd: %w", err))
+			// the else is necessary due to lexical scope of wd
 		} else {
 			pDebugF("getGenerator: invalid product; treating as path")
 			s = filepath.Join(wd, fmt.Sprintf("sci%s.in", s))
+			needDir = false
 		}
 	}
 
@@ -128,6 +132,9 @@ func getGenerator() *mathgen.Generator {
 		panic(fmt.Errorf("open %s: %w", s, err))
 	} else {
 		b.Input = file
+	}
+	if needDir {
+		b.AddInputDir(filepath.Dir(s))
 	}
 	if addBibtexPlaceholder {
 		b.AddBibtexPlaceholder = true
@@ -167,6 +174,7 @@ Default: One random author`)
  ((b)ib)tex: BiBTeX with commented LaTeX source
  `)
 	flag.StringVar(&productStrOrPath, "pf", "", "what to generate")
+	flag.Var(&incdir, "i", "include dir")
 	flag.Int64Var(&seed, "s", 0, "PRNG seed")
 	flag.Var(&verbosity, "v", "enable verbosity features")
 	flag.Parse()

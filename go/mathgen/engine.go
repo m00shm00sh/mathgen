@@ -14,13 +14,16 @@ package mathgen
 import (
 	"bufio"
 	"cmp"
+	"errors"
 	"io"
+	"io/fs"
 	"iter"
 	"log"
 	"maps"
 	"math"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -35,6 +38,7 @@ type GeneratorBuilder struct {
 	loggable
 	Input                io.Reader
 	AddBibtexPlaceholder bool
+	dirs                 []string
 }
 
 func NewGeneratorBuilder() *GeneratorBuilder {
@@ -44,6 +48,7 @@ func NewGeneratorBuilder() *GeneratorBuilder {
 			verbosity: None,
 		},
 		Input: os.Stdin,
+		dirs:  []string{mustGetWd()},
 	}
 }
 
@@ -53,6 +58,10 @@ func (b *GeneratorBuilder) SetLogger(l *log.Logger) *GeneratorBuilder {
 }
 func (b *GeneratorBuilder) SetVerbosity(v Verbosity) *GeneratorBuilder {
 	b.verbosity = v
+	return b
+}
+func (b *GeneratorBuilder) AddInputDir(dir ...string) *GeneratorBuilder {
+	b.dirs = append(b.dirs, dir...)
 	return b
 }
 
@@ -103,7 +112,7 @@ func (b *GeneratorBuilder) Build() *Generator {
 	if b.Input == nil {
 		panic("empty rules input")
 	}
-	g.readRulesFile(b.Input)
+	g.readRulesFile(b.Input, b.dirs)
 	// discard unneeded handled files after outermost readRulesFile
 	g.handledFiles = nil
 	g.generateTokenRx()
@@ -211,7 +220,24 @@ func (g *GeneratorWorker) appendDupRule(name string, ruleItem string) {
 	g.dupRules[name] = append(items, ruleItem)
 }
 
-func (g *Generator) readRulesFile(fh io.Reader) {
+// Open a file using a list of candidate paths to free us from needing to Chdir.
+// TODO: should we log ENOENT attempts at open?
+func openFileWithPath(basename string, dirs []string) (*os.File, error) {
+	if strings.ContainsRune(basename, os.PathSeparator) {
+		return nil, errors.New("directory in include not allowed")
+	}
+	for _, dir := range dirs {
+		tryPath := filepath.Join(dir, basename)
+		if fh, err := os.Open(tryPath); err == nil {
+			return fh, nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+	}
+	return nil, fs.ErrNotExist
+}
+
+func (g *Generator) readRulesFile(fh io.Reader, dirs []string) {
 	lineItr := fileIterator(g.logger, fh)
 	var err error
 	for line := range lineItr {
@@ -242,11 +268,12 @@ func (g *Generator) readRulesFile(fh io.Reader) {
 			}
 			g.handledFiles[file] = empty{}
 			g.logInfo("Opening included file", file)
-			localReader, err := os.Open(file)
+			localReader, err := openFileWithPath(file, dirs)
 			if err != nil {
 				g.logPanic("Couldn't open included file", file, err)
 			}
-			g.readRulesFile(localReader)
+			g.readRulesFile(localReader, dirs)
+			localReader.Close()
 			continue
 		}
 
