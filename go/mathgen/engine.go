@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type empty struct{}
@@ -213,9 +214,6 @@ func fileIterator(l *log.Logger, fh io.Reader) iter.Seq[string] {
 	}
 }
 
-var readRulesNoDuplicateRuleRx = regexp.MustCompile(`([^+]*)!$`)
-var readRulesWeightedRuleRx = regexp.MustCompile(`([^+]*)\+(\d+)$`)
-
 func (g *Generator) appendRule(name string, ruleItem string) {
 	items := g.rules[name]
 	g.rules[name] = append(items, ruleItem)
@@ -242,9 +240,44 @@ func openFileWithPath(basename string, dirs []string) (*os.File, error) {
 	return nil, fs.ErrNotExist
 }
 
+func getNonduplicateRule(s string) (bool, string) {
+	// regexp /([^+]*)!$/
+	if len(s) < 1 {
+		return false, ""
+	}
+	iLast := len(s) - 1
+	if s[iLast] != '!' {
+		return false, ""
+	}
+	iPlus := strings.LastIndexByte(s, '+')
+	return true, s[iPlus+1 : iLast]
+}
+func getWeightedRule(s string) (bool, string, int) {
+	// regexp /([^+]*)\+(\d+)$/
+	if len(s) < 2 {
+		return false, "", 0
+	}
+	iLast := len(s) - 1
+	iPlus := strings.LastIndexByte(s, '+')
+	if iPlus == -1 || iPlus == iLast {
+		return false, "", 0
+	}
+	if strings.IndexFunc(s[iPlus+1:iLast+1], func(r rune) bool {
+		return !unicode.IsDigit(r)
+	}) != -1 {
+		return false, "", 0
+	}
+	var err error
+	var digits int
+	if digits, err = strconv.Atoi(s[iPlus+1:]); err != nil {
+		return false, "", 0
+	}
+	iPrevPlus := strings.LastIndexByte(s[:iPlus], '+')
+	return true, s[iPrevPlus+1 : iPlus], digits
+}
+
 func (g *Generator) readRulesFile(fh io.Reader, dirs []string) {
 	lineItr := fileIterator(g.logger, fh)
-	var err error
 	for line := range lineItr {
 		words := strings.Fields(line)
 		name := words[0]
@@ -257,9 +290,8 @@ func (g *Generator) readRulesFile(fh io.Reader, dirs []string) {
 
 		// non-duplicate rule;
 		// each expansion instance produces a different substitution
-		if m := readRulesNoDuplicateRuleRx.FindStringSubmatch(name); m != nil {
-			name = m[1]
-			g.dupRuleNames[name] = empty{}
+		if hasNonDupRule, ndName := getNonduplicateRule(name); hasNonDupRule {
+			g.dupRuleNames[ndName] = empty{}
 			continue
 		}
 
@@ -301,12 +333,9 @@ func (g *Generator) readRulesFile(fh io.Reader, dirs []string) {
 		}
 		// look for weight
 		weight := 1
-		if m := readRulesWeightedRuleRx.FindStringSubmatch(name); m != nil {
-			name = m[1]
-			weight, err = strconv.Atoi(m[2])
-			if err != nil {
-				g.logPanic(name, "int parse:", m[2], err)
-			}
+		if isWeighted, newName, newWeight := getWeightedRule(name); isWeighted {
+			name = newName
+			weight = newWeight
 			g.logVerboseF("weighting rule by %d : %s -> %s", weight, name, cleanupNewlines(rule))
 		}
 		for weight > 0 {
@@ -400,6 +429,11 @@ func (g *Generator) popFirstRule(inTok string) []string {
 }
 
 func (g *GeneratorWorker) GenerateString(startToken string) string {
+	if _, ok := g.rules[startToken]; !ok {
+		// this should only get triggered with malformed custom input files, and
+		// custom input files are only used in debugging; panic is fine here
+		panic("bad input: start token not found: " + startToken)
+	}
 	g.logDebugF("tokenRx = %v", g.tokenRx)
 	s := g.expandRecursively(startToken)
 	return s
@@ -408,7 +442,24 @@ func (g *GeneratorWorker) GenerateText() string {
 	return g.GenerateString("START")
 }
 
-var expandRecursivelyCheckSpecialRuleRx = regexp.MustCompile(`(.*)([+#])$`)
+// If token ends with + or #, it needs sequential handling.
+// If it needs sequential handling, return (true, c, tok), where c is sequence type ('+' or '#') and
+// tok is token name.
+// Otherwise, return (false, 0, "").
+func getSequentialExpansionToken(s string) (bool, byte, string) {
+	if len(s) < 1 {
+		return false, 0, ""
+	}
+	iLast := len(s) - 1
+	switch strings.IndexByte("+#", s[iLast]) {
+	case 0, 1:
+		return true, s[iLast], s[:iLast]
+	case -1:
+		fallthrough
+	default:
+		return false, 0, ""
+	}
+}
 
 func (g *GeneratorWorker) expandRecursively(start string) string {
 	/* check for special rules ending in + and #
@@ -417,12 +468,13 @@ func (g *GeneratorWorker) expandRecursively(start string) string {
 	 * The stripped rule entry is the active counter which is used as either
 	 * a thing to increment or an upper limit
 	 */
-	if m := expandRecursivelyCheckSpecialRuleRx.FindStringSubmatch(start); m != nil {
-		numRule := strings.TrimSpace(m[1])
+
+	if isSeq, seqType, numRule := getSequentialExpansionToken(start); isSeq {
 		i := g.numRules[numRule]
-		if m[2] == "+" {
+		switch {
+		case seqType == '+':
 			g.numRules[numRule] = i + 1
-		} else if m[2] == "#" && i > 0 {
+		case /* seqType == '#' && */ i > 0:
 			i = g.rng.Intn(i)
 		}
 		return strconv.Itoa(i)
@@ -470,13 +522,11 @@ func (g *GeneratorWorker) expandRecursively(start string) string {
 
 		fullToken = strings.Join(components, "")
 
-		dups := g.dupRules[start]
-		if dups != nil {
+		if dups, hasDupRule := g.dupRules[start]; hasDupRule {
+			g.logDebugF("dupRule %s", start)
 			// make sure we haven't generated this exact token yet
-			for _, d := range dups {
-				if d == fullToken {
-					doRepeat = true
-				}
+			if slices.Contains(dups, fullToken) {
+				doRepeat = true
 			}
 
 			if !doRepeat {
