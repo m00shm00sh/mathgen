@@ -130,6 +130,11 @@ func (b *GeneratorBuilder) Build() *Generator {
 			b.WriteString(cleanupNewlines(strings.Join(g.rules[k], "|")))
 			b.WriteRune('\n')
 		}
+		b.WriteString("* dupRule slots:")
+		for _, k := range slices.Collect(maps.Keys(g.dupRuleNames)) {
+			b.WriteRune(' ')
+			b.WriteString(k)
+		}
 		return b.String()
 	})
 	return &g
