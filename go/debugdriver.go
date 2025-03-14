@@ -150,6 +150,7 @@ func generateOutput() {
 	text := generator.GeneratePrettyString(omPretty[outMode])
 	var bib string
 	if outMode == om_bib {
+		text = generator.GeneratePrettyString(mathgen.Platex)
 		bib = generator.GenerateBibtex(text)
 	}
 	if len(bib) > 0 {
