@@ -51,13 +51,21 @@ Building
 Running
 =======
 
-The main Mathgen program is `go/go`.  For a summary of options,
+The main Mathgen program is `go/main`.  For a summary of options,
 run:
 
-$ go/go -h
+$ go/main -h
 
 The current default behavior, is to generate an article with one randomly generated author
 and view the output with `xdg-open`.
+
+A basic http server can run on :8080, for use in browser:
+
+$ go/http
+
+Use envar RATE_LIMIT to set rate limit so there's not 9000 concurrent pdflatex processes running.
+
+Then visit http://127.0.0.1:8080/article.php . Use query-params author and seed to specify author(s) and seed.
 
 Examples
 ========
@@ -93,6 +101,7 @@ A quick road map to the files in the source distribution:
 
 - go/debugdriver.go: debug driver
 - go/main.go: command-line front-end
+- go/http.go: http front-end
 - go/mathgen/: the `mathgen` module
 - go/mathgen/bibtex.go: bibtex generator
   - (*GeneratorWorker) GenerateBibtex (string) string
