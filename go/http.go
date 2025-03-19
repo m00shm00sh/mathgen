@@ -18,7 +18,9 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync/atomic"
+	"text/template"
 
 	"github.com/joho/godotenv"
 	
@@ -133,6 +135,45 @@ func main() {
 		}
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", func (w http.ResponseWriter, r *http.Request) {
+		t := template.Must(template.New("html").Parse(
+`<!DOCTYPE html>
+<html>
+	<head><title>Mathgen: randomly generated math papers</title></head>
+	<body>
+	<p>
+		A port of <a href="https://thatsmathematics.com/mathgen/">Mathgen</a> to Golang.<br/>
+		Code available <a href="https://github.com/m00shm00sh/mathgen"/>here</a>.
+	</p>
+	<h2>Endpoints</h2>
+	<table>
+	{{range .}}
+		<tr><td><a href="{{.Link}}">{{.Link}}</a></td><td>{{.Text}}</td></tr>
+	{{end}}
+	</table>
+	<br/>
+	<h2>Query parameters</h2>
+	<ul>
+		<li><code>author</code>: author name; use FAMOUS_AUTHOR for a random celebrity</li>
+	</ul>
+	</body>
+</html>`))
+		var b strings.Builder
+		if err := t.Execute(&b, []struct{
+			Link string
+			Text string
+			}{	{ "/article.pdf", "article (PDF)" },
+				{ "/article.zip", "article (ZIP sources)" },
+				{ "/book.pdf", "book (PDF) (please be patient)" },
+				{ "/book.zip", "book (ZIP sources) (please be patient)" },
+				{ "/blurb", "blurb (raw text)" },
+				{ "/stats", "misc statistics" },
+		}); err != nil {
+			write500(err, w)
+		} else {
+			writePlaintext(b.String(), w)
+		}
+	})
 	mux.HandleFunc("GET /article.pdf", renderFactory(mathgen.Article, mathgen.Pdf))
 	mux.HandleFunc("GET /article.zip", renderFactory(mathgen.Article, mathgen.Zip))
 	mux.HandleFunc("GET /book.pdf", renderFactory(mathgen.Book, mathgen.Pdf))
