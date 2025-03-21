@@ -51,21 +51,21 @@ Building
 Running
 =======
 
-The main Mathgen program is `go/main`.  For a summary of options,
+The main Mathgen program is `main`.  For a summary of options,
 run:
 
-$ go/main -h
+$ ./main -h
 
 The current default behavior, is to generate an article with one randomly generated author
 and view the output with `xdg-open`.
 
 A basic http server can run on :8080, for use in browser:
 
-$ go/http
+$ ./http
 
 Use envar RATE_LIMIT to set rate limit so there's not 9000 concurrent pdflatex processes running.
 
-Then visit http://127.0.0.1:8080/article.php . Use query-params author and seed to specify author(s) and seed.
+Then visit http://127.0.0.1:8080/article.pdf . Use query-params author and seed to specify author(s) and seed.
 
 Examples
 ========
@@ -73,23 +73,23 @@ Examples
 Generate an article with author "J. Doe" and view the output with
 xpdf:
 
-`$ go/go - product article -mode view -author "J. Doe" -viewer xpdf`
+`$ ./main - product article -mode view -author "J. Doe" -viewer xpdf`
 
 The same, but write the PDF to `mypaper.pdf':
 
-`$ go/go -product article -mode pdf -author "J. Doe" -output mypaper.pdf`
+`$ ./main -product article -mode pdf -author "J. Doe" -output mypaper.pdf`
 
 Give yourself a famous collaborator, and create a zip file with the
 source and PDF:
 
-`$ go/go -product article -mode zip -output mypaper.zip -author "J. Doe" -author "P. Erd\H{o}s"`
+`$ ./main -product article -mode zip -output mypaper.zip -author "J. Doe" -author "P. Erd\H{o}s"`
 
 Tip: To randomly generate an author's name, you can use
 `-author FAMOUS_AUTHOR' or `-author GENERIC_AUTHOR'.
 
 Generate a book:
 
-`$ go/go -product book -mode pdf -output mybook.pdf -author "J. Doe"`
+`$ ./main -product book -mode pdf -output mybook.pdf -author "J. Doe"`
 
 Note that this may take a couple of minutes to generate and compile.
 
@@ -99,13 +99,13 @@ Source code
 
 A quick road map to the files in the source distribution:
 
-- go/debugdriver.go: debug driver
-- go/main.go: command-line front-end
-- go/http.go: http front-end
-- go/mathgen/: the `mathgen` module
-- go/mathgen/bibtex.go: bibtex generator
+- debugdriver.go: debug driver
+- main.go: command-line front-end
+- http.go: http front-end
+- mathgen/: the `mathgen` module
+- mathgen/bibtex.go: bibtex generator
   - (*GeneratorWorker) GenerateBibtex (string) string
-- go/mathgen/driver.go: file production driver
+- mathgen/driver.go: file production driver
   - Product - product to generate
     - Blurb - generate blurb
     - Article - generate article
@@ -124,7 +124,7 @@ A quick road map to the files in the source distribution:
   - `NewDriver`: create new Driver
   - `(*Driver) SetVerbosity`: set verbosity level
   - `(*Driver) GenerateOutput`: produce output, returning Reader and last error
-- go/mathgen/engine.go: main engine
+- mathgen/engine.go: main engine
   - `GeneratorBuilder`: builder struct for preparing rule reading
     - `Input`: main input file `io.Reader`
     - `AddBibtexPlaceholder`: if `true`, prepare the rules for an auxiliary Bibtex pass
@@ -140,17 +140,17 @@ A quick road map to the files in the source distribution:
   - `(*Generator) Seed`: get the seed value in use
   - `(*Generator) GenerateString`: generate string given start token
   - `(*Generator) GenerateText` generate string with start token `START`
-- go/mathgen/latexpretty.go: LaTeX pretty printing
+- mathgen/latexpretty.go: LaTeX pretty printing
   - Pretty - pretty printing to perform
     - `PNone` - none
     - `Platex` - article pretty-printing
     - `Platexbook` - book pretty-printing
     - `Pbibtex` - bibtex pretty-printing
   - `(*Generator) GeneratePrettyString`: generate LaTeX or Bibtex text with fixed formatting
-- go/mathgen/loggable.go: Internal logging helpers (no exported functions)
-- go/mathgen/re.go: internal regex helpers (no exported functions)
-- go/mathgen/util.go: internal utility helpers (no exported functions)
-- go/mathgen/verbosity.go: verbosity type and its flag interface
+- mathgen/loggable.go: Internal logging helpers (no exported functions)
+- mathgen/re.go: internal regex helpers (no exported functions)
+- mathgen/util.go: internal utility helpers (no exported functions)
+- mathgen/verbosity.go: verbosity type and its flag interface
   - Verbosity - type
     - None - verbosity level `none`
     - Info - verbosity level `info`
