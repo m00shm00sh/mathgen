@@ -14,6 +14,7 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"maps"
 	"os"
@@ -98,7 +99,20 @@ var (
 	}
 )
 
-func getGenerator(l loggable, p Product) *Generator {
+type driverError string
+
+func (e driverError) Error() string {
+	return string(e)
+}
+
+const (
+	blurbAndNotRaw            driverError = "product is blurb but output mode isn't raw"
+	zipAllAndNotVerboseEnough driverError = "zipAll requires verbosity of verbose or higher"
+	cannotProduceOutput       driverError = "don't know what kind of output to produce"
+	engineError               driverError = "engine error; check logs"
+)
+
+func getGenerator(l loggable, fs fs.FS, p Product) *Generator {
 	productGen[p].once.Do(func() {
 		b := NewGeneratorBuilder()
 		if l.logger == nil {
@@ -107,13 +121,8 @@ func getGenerator(l loggable, p Product) *Generator {
 			b.loggable = l
 		}
 		b.AddBibtexPlaceholder = p != Blurb
-		ruleFileName := filepath.Join(workDir, "sci"+productStr[p]+".in")
-		fh, err := os.Open(ruleFileName)
-		if err != nil {
-			// panic because if we have a problem here, there's no useful way to continue
-			panic(fmt.Errorf("open %s: %w", ruleFileName, err))
-		}
-		b.Input = fh
+		b.FS = fs
+		b.InputFilename = "sci" + productStr[p] + ".in"
 		g := b.Build()
 		productGen[p].generator = g
 	})
@@ -153,6 +162,7 @@ var (
 
 type Driver struct {
 	loggable
+	FS fs.FS
 	Product
 	OutputMode
 	Seed    int64
@@ -224,19 +234,6 @@ The output is set to 6x9 inch paper and is suitable for lulu.com.
 		unreachable(true, "generateReadmeText should not be executed")
 	}
 	return b.String(), nil
-}
-
-// driver validation error type
-type illegalArg string
-
-const (
-	blurbAndNotRaw            illegalArg = "product is blurb but output mode isn't raw"
-	zipAllAndNotVerboseEnough illegalArg = "zipAll requires verbosity of verbose or higher"
-	cannotProduceOutput       illegalArg = "don't know what kind of output to produce"
-)
-
-func (ia illegalArg) Error() string {
-	return string(ia)
 }
 
 func (d *Driver) checkParams() error {
@@ -336,7 +333,14 @@ func (d *Driver) GenerateOutput() (io.Reader, error) {
 	if err = d.checkParams(); err != nil {
 		return nil, err
 	}
-	generator := getGenerator(d.loggable, d.Product).NewWorker(d.Seed, d.Authors)
+	generator := getGenerator(d.loggable, d.FS, d.Product)
+	if generator == nil {
+		return nil, engineError
+	}
+	worker := generator.NewWorker(d.Seed, d.Authors)
+	if worker == nil {
+		return nil, engineError
+	}
 	var logP *loggable
 	if d.loggable.logger != nil {
 		logP = &d.loggable
@@ -346,8 +350,8 @@ func (d *Driver) GenerateOutput() (io.Reader, error) {
 			verbosity: d.verbosity,
 		}
 	}
-	seed := generator.Seed()
-	text := generator.GeneratePrettyString(productPretty[d.Product])
+	seed := worker.Seed()
+	text := worker.GeneratePrettyString(productPretty[d.Product])
 	if d.OutputMode == Raw {
 		ifh, ofh := io.Pipe()
 		go func() {
@@ -378,7 +382,7 @@ func (d *Driver) GenerateOutput() (io.Reader, error) {
 	if err = writeToFile(logP, text, workFile(basename+".tex")); err != nil {
 		return nil, err
 	}
-	bibText := generator.GenerateBibtex(text)
+	bibText := worker.GenerateBibtex(text)
 	if err = writeToFile(logP, bibText, workFile(bibName)); err != nil {
 		return nil, err
 	}

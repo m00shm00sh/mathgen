@@ -128,11 +128,7 @@ func getGenerator() *mathgen.Generator {
 	}
 
 	b := mathgen.NewGeneratorBuilder()
-	if file, err := os.Open(s); err != nil {
-		panic(fmt.Errorf("open %s: %w", s, err))
-	} else {
-		b.Input = file
-	}
+	b.InputFilename = s
 	if needDir {
 		b.AddInputDir(filepath.Dir(s))
 	}

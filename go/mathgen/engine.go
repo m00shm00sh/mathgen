@@ -14,7 +14,6 @@ package mathgen
 import (
 	"bufio"
 	"cmp"
-	"errors"
 	"io"
 	"io/fs"
 	"iter"
@@ -22,8 +21,6 @@ import (
 	"maps"
 	"math"
 	"math/rand"
-	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -37,9 +34,10 @@ type empty struct{}
 // builder for reading input and generating token rules
 type GeneratorBuilder struct {
 	loggable
-	Input                io.Reader
+	InputFilename        string
 	AddBibtexPlaceholder bool
 	dirs                 []string
+	FS                   fs.FS
 }
 
 func NewGeneratorBuilder() *GeneratorBuilder {
@@ -48,8 +46,7 @@ func NewGeneratorBuilder() *GeneratorBuilder {
 			logger:    log.Default(),
 			verbosity: None,
 		},
-		Input: os.Stdin,
-		dirs:  []string{mustGetWd()},
+		FS: nil,
 	}
 }
 
@@ -62,6 +59,9 @@ func (b *GeneratorBuilder) SetVerbosity(v Verbosity) *GeneratorBuilder {
 	return b
 }
 func (b *GeneratorBuilder) AddInputDir(dir ...string) *GeneratorBuilder {
+	if b.FS != nil {
+		panic("AddInputDir should only be called when no custom FS provider is used")
+	}
 	b.dirs = append(b.dirs, dir...)
 	return b
 }
@@ -110,10 +110,11 @@ func (b *GeneratorBuilder) Build() *Generator {
 	} else {
 		g.addPlaceholderRules(placeholderRules)
 	}
-	if b.Input == nil {
-		panic("empty rules input")
+	fileOpener := b.FS
+	if fileOpener == nil {
+		fileOpener = newOsFilereader(b.dirs)
 	}
-	g.readRulesFile(b.Input, b.dirs)
+	g.readRulesFile(fileOpener, b.InputFilename)
 	// discard unneeded handled files after outermost readRulesFile
 	g.handledFiles = nil
 	g.generateTokenRx()
@@ -223,23 +224,6 @@ func (g *GeneratorWorker) appendDupRule(name string, ruleItem string) {
 	g.dupRules[name] = append(items, ruleItem)
 }
 
-// Open a file using a list of candidate paths to free us from needing to Chdir.
-// TODO: should we log ENOENT attempts at open?
-func openFileWithPath(basename string, dirs []string) (*os.File, error) {
-	if strings.ContainsRune(basename, os.PathSeparator) {
-		return nil, errors.New("directory in include not allowed")
-	}
-	for _, dir := range dirs {
-		tryPath := filepath.Join(dir, basename)
-		if fh, err := os.Open(tryPath); err == nil {
-			return fh, nil
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
-		}
-	}
-	return nil, fs.ErrNotExist
-}
-
 func getNonduplicateRule(s string) (bool, string) {
 	// regexp /([^+]*)!$/
 	if len(s) < 1 {
@@ -276,7 +260,13 @@ func getWeightedRule(s string) (bool, string, int) {
 	return true, s[iPrevPlus+1 : iPlus], digits
 }
 
-func (g *Generator) readRulesFile(fh io.Reader, dirs []string) {
+func (g *Generator) readRulesFile(fs fs.FS, fName string) {
+	g.logInfo("Opening file" + fName)
+	fh, err := fs.Open(fName)
+	if err != nil {
+		g.logPanic("opening ", fName, err)
+	}
+	defer fh.Close()
 	lineItr := fileIterator(g.logger, fh)
 	for line := range lineItr {
 		words := strings.Fields(line)
@@ -304,13 +294,8 @@ func (g *Generator) readRulesFile(fh io.Reader, dirs []string) {
 				continue
 			}
 			g.handledFiles[file] = empty{}
-			g.logInfo("Opening included file", file)
-			localReader, err := openFileWithPath(file, dirs)
-			if err != nil {
-				g.logPanic("Couldn't open included file", file, err)
-			}
-			g.readRulesFile(localReader, dirs)
-			localReader.Close()
+			g.logInfo("include:")
+			g.readRulesFile(fs, file)
 			continue
 		}
 
