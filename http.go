@@ -12,6 +12,7 @@ package main
 
 import (
 	"encoding/json"
+	"embed"
 	"errors"
 	"fmt"
 	"io"
@@ -61,12 +62,15 @@ var (
 		mathgen.Zip: "application/zip",
 	}
 	concurrentRenderCount atomic.Int32
-	completedRenderCount atomic.Int32
-	rateLimit int32
+	completedRenderCount  atomic.Int32
+	rateLimit             int32
 )
 
-func renderFactory(p mathgen.Product, m mathgen.OutputMode) func (http.ResponseWriter, *http.Request) {
-	return func (w http.ResponseWriter, r *http.Request) {
+//go:embed sci*.in
+var sciRules embed.FS
+
+func renderFactory(p mathgen.Product, m mathgen.OutputMode) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if rateLimit > 0 && concurrentRenderCount.Load() >= rateLimit {
 			write429("rate limit exceeded", w)
 			return
@@ -78,6 +82,7 @@ func renderFactory(p mathgen.Product, m mathgen.OutputMode) func (http.ResponseW
 			seedS = "0"
 		}
 		d := mathgen.NewDriver()
+		d.FS = sciRules
 		d.Product = p
 		d.OutputMode = m
 		d.Authors = authors
@@ -96,17 +101,15 @@ func renderFactory(p mathgen.Product, m mathgen.OutputMode) func (http.ResponseW
 			w.Header().Set("Content-type", mode2mime[m])
 			w.WriteHeader(200)
 			io.Copy(w, fh) // ignore errors and don't bother logging bytes sent
-			completedRenderCount.Add(1)	
+			completedRenderCount.Add(1)
 		}
-	}	
+	}
 }
 
 type statsT struct {
 	Concurrent int32 `json:"concurrent"`
-	Completed int32 `json:"completed"`
+	Completed  int32 `json:"completed"`
 }
-
-
 
 func doStats(w http.ResponseWriter, r *http.Request) {
 	k := r.URL.Query().Get("key")
@@ -116,16 +119,16 @@ func doStats(w http.ResponseWriter, r *http.Request) {
 	case "completed":
 		writePlaintext(strconv.FormatInt(int64(completedRenderCount.Load()), 10), w)
 	case "":
-		st := statsT {
+		st := statsT{
 			Concurrent: concurrentRenderCount.Load(),
-			Completed: completedRenderCount.Load(),
+			Completed:  completedRenderCount.Load(),
 		}
 		writeJson(st, w)
 	default:
 		write400(errors.New("bad key"), w)
 	}
 }
-		
+
 func main() {
 	godotenv.Load()
 	if envRatelimit := os.Getenv("RATE_LIMIT"); envRatelimit != "" {
@@ -136,9 +139,9 @@ func main() {
 		}
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", func (w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		t := template.Must(template.New("html").Parse(
-`<!DOCTYPE html>
+			`<!DOCTYPE html>
 <html>
 	<head><title>Mathgen: randomly generated math papers</title></head>
 	<body>
@@ -160,15 +163,15 @@ func main() {
 	</body>
 </html>`))
 		var b strings.Builder
-		if err := t.Execute(&b, []struct{
+		if err := t.Execute(&b, []struct {
 			Link string
 			Text string
-			}{	{ "/article.pdf", "article (PDF)" },
-				{ "/article.zip", "article (ZIP sources)" },
-				{ "/book.pdf", "book (PDF) (please be patient)" },
-				{ "/book.zip", "book (ZIP sources) (please be patient)" },
-				{ "/blurb", "blurb (raw text)" },
-				{ "/stats", "misc statistics" },
+		}{{"/article.pdf", "article (PDF)"},
+			{"/article.zip", "article (ZIP sources)"},
+			{"/book.pdf", "book (PDF) (please be patient)"},
+			{"/book.zip", "book (ZIP sources) (please be patient)"},
+			{"/blurb", "blurb (raw text)"},
+			{"/stats", "misc statistics"},
 		}); err != nil {
 			write500(err, w)
 		} else {
@@ -181,7 +184,7 @@ func main() {
 	mux.HandleFunc("GET /book.zip", renderFactory(mathgen.Book, mathgen.Zip))
 	mux.HandleFunc("GET /blurb", renderFactory(mathgen.Blurb, mathgen.Raw))
 	mux.HandleFunc("GET /stats", doStats)
-	
+
 	s := http.Server{Handler: mux, Addr: ":8080"}
 	println("listening on :8080")
 	s.ListenAndServe()
