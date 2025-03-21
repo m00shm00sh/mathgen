@@ -30,7 +30,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/m00shm00sh/mathgen/go/mathgen"
+	"github.com/m00shm00sh/mathgen/mathgen"
 )
 
 type omode int

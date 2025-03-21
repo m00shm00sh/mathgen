@@ -23,9 +23,10 @@ import (
 	"text/template"
 
 	"github.com/joho/godotenv"
-	
-	"github.com/m00shm00sh/mathgen/go/mathgen"
+
+	"github.com/m00shm00sh/mathgen/mathgen"
 )
+
 func writePlaintext(s string, w http.ResponseWriter) {
 	w.WriteHeader(200)
 	io.WriteString(w, s)

@@ -1,4 +1,4 @@
-module github.com/m00shm00sh/mathgen/go
+module github.com/m00shm00sh/mathgen
 
 go 1.23.6
 
