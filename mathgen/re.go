@@ -15,6 +15,12 @@ import (
 	"strings"
 )
 
+type regex struct { *regexp.Regexp }
+
+func mustCompileRegex(expr string) *regex {
+	return &regex { regexp.MustCompile(expr) }
+}
+
 /*
 regexp.(*Regexp).ReplaceAllString lets us replace with submatches but it doesn't give us a way
 * to process submatches or perform side effects on successful match like we can do with the following
@@ -34,7 +40,7 @@ regexp.(*Regexp).ReplaceAllString lets us replace with submatches but it doesn't
 * Disappointing that there's re.replaceAll but the submatch form never got an exported version.
 * NOTE: There is no version for []byte, unlike regexp API. This may change if there is demand.
 */
-func replaceAllStringSubmatchIndexFunc(re *regexp.Regexp, s string, n int, repl func([]int) string) string {
+func (re *regex) replaceAllStringSubmatchIndexFunc(s string, n int, repl func([]int) string) string {
 	last := 0
 	var b strings.Builder
 	for _, m := range re.FindAllStringSubmatchIndex(s, n) {
@@ -45,7 +51,7 @@ func replaceAllStringSubmatchIndexFunc(re *regexp.Regexp, s string, n int, repl 
 	b.WriteString(s[last:])
 	return b.String()
 }
-func splitStringCapturingSubmatch(re *regexp.Regexp, s string, n int) []string {
+func (re *regex) splitStringCapturingSubmatch(s string, n int) []string {
 	var w []string
 	last := 0
 	for _, m := range re.FindAllStringSubmatchIndex(s, n) {

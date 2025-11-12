@@ -237,10 +237,10 @@ func enBracket(s string) string {
 }
 
 // helpers for enTitle, enSentence
-var splitWordsRx = regexp.MustCompile(`([\s-]+)`)
+var splitWordsRx = mustCompileRegex(`([\s-]+)`)
 
 func splitWords(s string) []string {
-	return splitStringCapturingSubmatch(splitWordsRx, s, -1)
+	return splitWordsRx.splitStringCapturingSubmatch(s, -1)
 }
 
 func genSmallWords() map[string]empty {

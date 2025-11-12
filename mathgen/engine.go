@@ -21,7 +21,6 @@ import (
 	"maps"
 	"math"
 	"math/rand"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -69,7 +68,7 @@ func (b *GeneratorBuilder) AddInputDir(dir ...string) *GeneratorBuilder {
 // built set of rules; a seed value and st
 type Generator struct {
 	loggable
-	tokenRx      *regexp.Regexp
+	tokenRx      *regex
 	handledFiles map[string]empty
 	rules        map[string][]string
 	dupRuleNames map[string]empty
@@ -330,7 +329,7 @@ func (g *Generator) readRulesFile(fs fs.FS, fName string) {
 	}
 }
 
-func generateTokenRegexpFromRules(m map[string][]string) *regexp.Regexp {
+func generateTokenRegexpFromRules(m map[string][]string) *regex {
 	keys := make([]string, len(m))
 	i := 0
 	for k := range maps.Keys(m) {
@@ -343,10 +342,10 @@ func generateTokenRegexpFromRules(m map[string][]string) *regexp.Regexp {
 	})
 	pat := strings.Join(keys, "|")
 	rePat := rxFlagS + `^(.*?)(` + pat + `)`
-	return regexp.MustCompile(rePat)
+	return mustCompileRegex(rePat)
 }
 
-func (g *Generator) generateTokenRx() *regexp.Regexp {
+func (g *Generator) generateTokenRx() *regex {
 	old := g.tokenRx
 	g.tokenRx = generateTokenRegexpFromRules(g.rules)
 	return old
@@ -400,7 +399,7 @@ func (g *Generator) popFirstRule(inTok string) []string {
 	var rule string
 	var post string
 	didMatch := false
-	post = replaceAllStringSubmatchIndexFunc(g.tokenRx, inTok, 1, func(mi []int) string {
+	post = g.tokenRx.replaceAllStringSubmatchIndexFunc(inTok, 1, func(mi []int) string {
 		unreachable(len(mi) != 6, "unexpected match")
 		pre = inTok[mi[2]:mi[3]]  // $1
 		rule = inTok[mi[4]:mi[5]] // $2
