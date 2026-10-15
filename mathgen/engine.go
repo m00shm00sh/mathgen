@@ -17,7 +17,7 @@ import (
 	"io"
 	"io/fs"
 	"iter"
-	"log"
+	"log/slog"
 	"maps"
 	"math"
 	"math/rand"
@@ -32,7 +32,8 @@ type empty struct{}
 
 // builder for reading input and generating token rules
 type GeneratorBuilder struct {
-	loggable
+	Log *slog.Logger
+	Verbosity
 	InputFilename        string
 	AddBibtexPlaceholder bool
 	dirs                 []string
@@ -41,20 +42,18 @@ type GeneratorBuilder struct {
 
 func NewGeneratorBuilder() *GeneratorBuilder {
 	return &GeneratorBuilder{
-		loggable: loggable{
-			logger:    log.Default(),
-			verbosity: None,
-		},
-		FS: nil,
+		Log:       slog.Default(),
+		Verbosity: None,
+		FS:        nil,
 	}
 }
 
-func (b *GeneratorBuilder) SetLogger(l *log.Logger) *GeneratorBuilder {
-	b.loggable.SetLogger(l)
+func (b *GeneratorBuilder) SetLogger(l *slog.Logger) *GeneratorBuilder {
+	b.Log = l
 	return b
 }
 func (b *GeneratorBuilder) SetVerbosity(v Verbosity) *GeneratorBuilder {
-	b.verbosity = v
+	b.Verbosity = v
 	return b
 }
 func (b *GeneratorBuilder) AddInputDir(dir ...string) *GeneratorBuilder {
@@ -67,7 +66,8 @@ func (b *GeneratorBuilder) AddInputDir(dir ...string) *GeneratorBuilder {
 
 // built set of rules; a seed value and st
 type Generator struct {
-	loggable
+	Log *slog.Logger
+	Verbosity
 	tokenRx      *regex
 	handledFiles map[string]empty
 	rules        map[string][]string
@@ -99,7 +99,8 @@ var (
 
 func (b *GeneratorBuilder) Build() *Generator {
 	g := Generator{
-		loggable:     b.loggable,
+		Log:          b.Log,
+		Verbosity:    b.Verbosity,
 		handledFiles: make(map[string]empty),
 		rules:        make(map[string][]string),
 		dupRuleNames: make(map[string]empty),
@@ -117,27 +118,29 @@ func (b *GeneratorBuilder) Build() *Generator {
 	// discard unneeded handled files after outermost readRulesFile
 	g.handledFiles = nil
 	g.generateTokenRx()
-	g.logDebugFunc(func() string {
-		var b strings.Builder
-		rKeys := slices.Collect(maps.Keys(g.rules))
-		slices.SortFunc(rKeys, func(a, b string) int {
-			return strings.Compare(a, b)
-		})
-		b.WriteString("dump rules\n")
-		for _, k := range rKeys {
-			b.WriteString("* rule: ")
-			b.WriteString(k)
-			b.WriteString(" -> ")
-			b.WriteString(cleanupNewlines(strings.Join(g.rules[k], "|")))
-			b.WriteRune('\n')
-		}
-		b.WriteString("* dupRule slots:")
-		for _, k := range slices.Collect(maps.Keys(g.dupRuleNames)) {
-			b.WriteRune(' ')
-			b.WriteString(k)
-		}
-		return b.String()
-	})
+	if g.Verbosity >= Debug {
+		g.Log.Debug("dump", "rules", func() string {
+			var b strings.Builder
+			rKeys := slices.Collect(maps.Keys(g.rules))
+			slices.SortFunc(rKeys, func(a, b string) int {
+				return strings.Compare(a, b)
+			})
+			b.WriteString("dump rules\n")
+			for _, k := range rKeys {
+				b.WriteString("* rule: ")
+				b.WriteString(k)
+				b.WriteString(" -> ")
+				b.WriteString(cleanupNewlines(strings.Join(g.rules[k], "|")))
+				b.WriteRune('\n')
+			}
+			b.WriteString("* dupRule slots:")
+			for _, k := range slices.Collect(maps.Keys(g.dupRuleNames)) {
+				b.WriteRune(' ')
+				b.WriteString(k)
+			}
+			return b.String()
+		}())
+	}
 	return &g
 }
 
@@ -162,11 +165,11 @@ func (g *Generator) NewWorker(seed int64, authors []string) *GeneratorWorker {
 	}
 	// (*GeneratorBuilder).Build() gave us a set of key names to populate dupRules with
 	for k := range g.dupRuleNames {
-		g.logDebugF("dupRule %s", k)
+		g.Log.Debug("dupRule", k, k)
 		gw.appendDupRule(k, "")
 	}
 
-	g.logInfo("seed =", seed)
+	g.Log.Info("worker", "seed", seed)
 	gw.auxRules["SEED"] = []string{strconv.FormatInt(seed, 10)}
 	if len(authors) > 0 {
 		gw.addAuthorsRule(authors)
@@ -174,29 +177,30 @@ func (g *Generator) NewWorker(seed int64, authors []string) *GeneratorWorker {
 		gw.addAuthorsRule(defaultAuthors)
 	}
 	gw.addYearRule()
-	gw.logDebugFunc(func() string {
-		var b strings.Builder
-		rKeys := slices.Collect(maps.Keys(gw.auxRules))
-		slices.SortFunc(rKeys, func(a, b string) int {
-			return strings.Compare(a, b)
-		})
-		b.WriteString("dump auxrules\n")
-		for _, k := range rKeys {
-			b.WriteString("* rule: ")
-			b.WriteString(k)
-			b.WriteString(" -> ")
-			b.WriteString(cleanupNewlines(strings.Join(gw.auxRules[k], "|")))
-			b.WriteRune('\n')
-		}
-		return b.String()
-	})
+	if g.Verbosity >= Debug {
+		gw.Log.Debug("dump", "auxRules", (func() string {
+			var b strings.Builder
+			rKeys := slices.Collect(maps.Keys(gw.auxRules))
+			slices.SortFunc(rKeys, func(a, b string) int {
+				return strings.Compare(a, b)
+			})
+			for _, k := range rKeys {
+				b.WriteString("* rule: ")
+				b.WriteString(k)
+				b.WriteString(" -> ")
+				b.WriteString(cleanupNewlines(strings.Join(gw.auxRules[k], "|")))
+				b.WriteRune('\n')
+			}
+			return b.String()
+		})())
+	}
 	return &gw
 }
 func (g *GeneratorWorker) Seed() int64 {
 	return g.seed
 }
 
-func fileIterator(l *log.Logger, fh io.Reader) iter.Seq[string] {
+func fileIterator(l *slog.Logger, fh io.Reader) iter.Seq[string] {
 	sc := bufio.NewScanner(fh)
 	return func(yield func(string) bool) {
 		for sc.Scan() {
@@ -208,7 +212,8 @@ func fileIterator(l *log.Logger, fh io.Reader) iter.Seq[string] {
 			}
 		}
 		if err := sc.Err(); err != nil {
-			l.Panicln(err)
+			l.Error("IO error during file read", "err", err)
+			panic(err)
 		}
 
 	}
@@ -260,13 +265,14 @@ func getWeightedRule(s string) (bool, string, int) {
 }
 
 func (g *Generator) readRulesFile(fs fs.FS, fName string) {
-	g.logInfo("Opening file" + fName)
+	g.Log.Info("opening file", "file", fName)
 	fh, err := fs.Open(fName)
 	if err != nil {
-		g.logPanic("opening ", fName, err)
+		g.Log.Error("opening file", "file", fName, "err", err)
+		panic(err)
 	}
 	defer fh.Close()
-	lineItr := fileIterator(g.logger, fh)
+	lineItr := fileIterator(g.Log, fh)
 	for line := range lineItr {
 		words := strings.Fields(line)
 		name := words[0]
@@ -289,11 +295,11 @@ func (g *Generator) readRulesFile(fs fs.FS, fName string) {
 			file := words[0]
 			// guard against multiple includes (this allows main file to be included twice)
 			if _, exists := g.handledFiles[file]; exists {
-				g.logInfo("Skipping duplicate included file", file)
+				g.Log.Info("skipping duplicate included file", "file", file)
 				continue
 			}
 			g.handledFiles[file] = empty{}
-			g.logInfo("include:")
+			g.Log.Info("include")
 			g.readRulesFile(fs, file)
 			continue
 		}
@@ -310,7 +316,8 @@ func (g *Generator) readRulesFile(fs fs.FS, fName string) {
 				}
 			}
 			if !seenEnd {
-				g.logPanic(name, ":", "EOF reached before end of rule")
+				g.Log.Error("EOF reached before end of rule", "name", name)
+				panic("EOF reached before end of rule: " + name)
 			}
 		} else {
 			rule = strings.Join(words, " ")
@@ -320,7 +327,9 @@ func (g *Generator) readRulesFile(fs fs.FS, fName string) {
 		if isWeighted, newName, newWeight := getWeightedRule(name); isWeighted {
 			name = newName
 			weight = newWeight
-			g.logVerboseF("weighting rule by %d : %s -> %s", weight, name, cleanupNewlines(rule))
+			if g.Verbosity >= Verbose {
+				g.Log.Debug("weighting rule", "weight", weight, "name", name, "rule", cleanupNewlines(rule))
+			}
 		}
 		for weight > 0 {
 			weight -= 1
@@ -418,7 +427,7 @@ func (g *GeneratorWorker) GenerateString(startToken string) string {
 		// custom input files are only used in debugging; panic is fine here
 		panic("bad input: start token not found: " + startToken)
 	}
-	g.logDebugF("tokenRx = %v", g.tokenRx)
+	g.Log.Debug("tokenRx", "value", g.tokenRx)
 	s := g.expandRecursively(startToken)
 	return s
 }
@@ -471,14 +480,14 @@ func (g *GeneratorWorker) expandRecursively(start string) string {
 		auxVals, isAux := g.auxRules[start]
 		var ruleResult []string
 		if isAux {
-			g.logDebugF("auxRule %s\n", start)
+			g.Log.Debug("auxRule", "rule", start)
 			ruleResult = auxVals
 		} else {
 			ruleResult = g.rules[start]
 		}
 		inputTok := pickRand(g.rng, ruleResult)
 		count += 1
-		g.logDebugF("expand: %s -> %v", start, inputTok)
+		g.Log.Debug("expand", "start", start, "input", inputTok)
 
 		doRepeat = false
 
@@ -507,7 +516,7 @@ func (g *GeneratorWorker) expandRecursively(start string) string {
 		fullToken = strings.Join(components, "")
 
 		if dups, hasDupRule := g.dupRules[start]; hasDupRule {
-			g.logDebugF("dupRule %s", start)
+			g.Log.Debug("dupRule", "start", start)
 			// make sure we haven't generated this exact token yet
 			if slices.Contains(dups, fullToken) {
 				doRepeat = true

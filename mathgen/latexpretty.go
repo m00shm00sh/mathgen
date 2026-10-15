@@ -39,7 +39,7 @@ func (g *GeneratorWorker) GeneratePrettyString(p Pretty) string {
 	s := g.GenerateString(startSym)
 	switch p {
 	case Platex, Platexbook:
-		s = prettyPrintLatex(&g.loggable, s, p)
+		s = prettyPrintLatex(g.Verbosity, s, p)
 	case Pbibtex:
 		s = prettyPrintBibtex(g.rng, s)
 	}
@@ -63,11 +63,34 @@ var ppLatexRx3 = regexp.MustCompile(`(\$\$|\\end\{align\*\})\s*([,.;:!?])`)
 const ppLatexRx3Repl = `$2$1`
 
 // fix "foo , bar"
-// s/PATTERN/$1/g
-// ReplaceAllString(_, `$1`)
-var ppCommonRx1 = regexp.MustCompile(`\s+([,.\-!?\';:])`)
-
-const ppCommonRx1Repl = `$1`
+// re(`\s+([,.\-!?\';:])`).ReplaceAll(s, "$1")
+func fixCommas(s string) string {
+	var b strings.Builder
+	start := 0
+	lastNonSpace := 0
+	var prevIsSpace bool
+	for i, r := range s {
+		if !prevIsSpace && unicode.IsSpace(r) {
+			prevIsSpace = true
+			lastNonSpace = i
+			continue
+		}
+		if prevIsSpace && !unicode.IsSpace(r) {
+			if strings.ContainsRune(`,.-!?';:`, r) {
+				b.WriteString(s[start:lastNonSpace])
+				b.WriteRune(r)
+				start = i + 1
+				lastNonSpace = start
+			} else {
+				prevIsSpace = false
+			}
+		}
+	}
+	if start < len(s) {
+		b.WriteString(s[start:])
+	}
+	return b.String()
+}
 
 // fix "foo- bar"
 // s/PATTERN/-/g
@@ -80,10 +103,10 @@ func matchNonSpace(r rune) bool {
 	return !unicode.IsSpace(r)
 }
 
-func prettyPrintLatex(l *loggable, s string, p Pretty) string {
+func prettyPrintLatex(verbosity Verbosity, s string, p Pretty) string {
 	var sb strings.Builder
 	for _, line := range strings.Split(s, "\n") {
-		if l.verbosity >= Info {
+		if verbosity >= Info {
 			sb.WriteString("% ")
 			sb.WriteString(line)
 			sb.WriteRune('\n')
@@ -131,7 +154,7 @@ func prettyPrintLatex(l *loggable, s string, p Pretty) string {
 		}
 
 		newline = strings.ReplaceAll(newline, "\\Em", "\\em")
-		newline = ppCommonRx1.ReplaceAllString(newline, ppCommonRx1Repl)
+		newline = fixCommas(newline)
 		newline = ppCommonRx2.ReplaceAllString(newline, ppCommonRx2Repl)
 		newline = ppLatexRx3.ReplaceAllString(newline, ppLatexRx3Repl)
 
@@ -200,7 +223,7 @@ func prettyPrintBibtex(r *rand.Rand, s string) string {
 			title := line[m[4]:m[5]]
 			last := line[m[6]:m[7]]
 			title = ppBibtexRx2.ReplaceAllString(title, ppBibtexRx2Repl)
-			title = ppCommonRx1.ReplaceAllString(title, ppCommonRx1Repl)
+			title = fixCommas(title)
 			title = ppCommonRx2.ReplaceAllString(title, ppCommonRx2Repl)
 			title = enBracket(title)
 			title = enTitle(title)

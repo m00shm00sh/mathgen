@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
+	"log/slog"
 	"maps"
 	"os"
 	"os/exec"
@@ -112,14 +112,13 @@ const (
 	engineError               driverError = "engine error; check logs"
 )
 
-func getGenerator(l loggable, fs fs.FS, p Product) *Generator {
+func getGenerator(l *slog.Logger, v Verbosity, fs fs.FS, p Product) *Generator {
 	productGen[p].once.Do(func() {
 		b := NewGeneratorBuilder()
-		if l.logger == nil {
-			b.loggable.verbosity = l.verbosity
-		} else {
-			b.loggable = l
+		if l != nil {
+			b.Log = l
 		}
+		b.Verbosity = v
 		b.AddBibtexPlaceholder = p != Blurb
 		b.FS = fs
 		b.InputFilename = "sci" + productStr[p] + ".in"
@@ -161,8 +160,9 @@ var (
 )
 
 type Driver struct {
-	loggable
-	FS fs.FS
+	Logger    *slog.Logger
+	Verbosity Verbosity
+	FS        fs.FS
 	Product
 	OutputMode
 	Seed    int64
@@ -173,7 +173,16 @@ func NewDriver() *Driver {
 	return &Driver{
 		Product:    defaultProduct,
 		OutputMode: defaultMode,
+		Verbosity:  defaultVerbosity,
 	}
+}
+
+func (d *Driver) SetLogger(l *slog.Logger) {
+	d.Logger = l
+}
+
+func (d *Driver) SetVerbosity(v Verbosity) {
+	d.Verbosity = v
 }
 
 func generateReadmeText(p Product, name string) (string, error) {
@@ -241,7 +250,7 @@ func (d *Driver) checkParams() error {
 		return blurbAndNotRaw
 	}
 	// ZipAll is useless unless debugging (and also a security hole because logs expose OS details)
-	if d.OutputMode == ZipAll && d.verbosity < Verbose {
+	if d.OutputMode == ZipAll && d.Verbosity < Verbose {
 		return zipAllAndNotVerboseEnough
 	}
 	return nil
@@ -260,7 +269,7 @@ func getWorkDir(seed int64) (string, error) {
 	return dir, nil
 }
 
-func makeZip(l *loggable, out io.Writer, seed int64, fNames []string) error {
+func makeZip(log *slog.Logger, out io.Writer, seed int64, fNames []string) error {
 	seedS := strconv.FormatInt(seed, 10)
 	zDir := "mathgen-" + seedS
 	zw := zip.NewWriter(out)
@@ -268,7 +277,9 @@ func makeZip(l *loggable, out io.Writer, seed int64, fNames []string) error {
 		var err error
 		var outF io.Writer
 		var inF *os.File
-		l.logVerboseF("makeZip: begin %s", fName)
+		if log != nil {
+			log.Debug("makeZip begin", "file", fName)
+		}
 		if inF, err = os.Open(fName); err != nil {
 			return fmt.Errorf("Zip: OpenInput %s: %w", fName, err)
 		}
@@ -283,26 +294,32 @@ func makeZip(l *loggable, out io.Writer, seed int64, fNames []string) error {
 			return fmt.Errorf("Zip: CloseInput %s: %w", fName, err)
 		}
 	}
-	l.logVerboseF("makeZip: finish")
+	if log != nil {
+		log.Debug("makeZip finish")
+	}
 	if err := zw.Close(); err != nil {
 		return fmt.Errorf("Zip: Close: %w", err)
 	}
 	return nil
 }
-func writeToFh(l *loggable, contents string, fh io.Writer) error {
-	l.logVerboseF("writeToFh: (len=%d)", len(contents))
+func writeToFh(log *slog.Logger, contents string, fh io.Writer) error {
+	if log != nil {
+		log.Debug("writeToFh", "len", len(contents))
+	}
 	if _, err := fh.Write([]byte(contents)); err != nil {
 		return fmt.Errorf("writeToFh: %w", err)
 	}
 	return nil
 }
-func writeToFile(l *loggable, contents, filename string) error {
-	l.logVerboseF("writeToFile: %s", filename)
+func writeToFile(log *slog.Logger, contents, filename string) error {
+	if log != nil {
+		log.Debug("writeToFile", "file", filename)
+	}
 	f, err := os.Create(filename)
 	if err != nil {
 		return fmt.Errorf("writeToFile: open %s: %w", filename, err)
 	}
-	if err = writeToFh(l, contents, f); err != nil {
+	if err = writeToFh(log, contents, f); err != nil {
 		return fmt.Errorf("writeToFile: write %s: %w", filename, err)
 	}
 	if err = f.Close(); err != nil {
@@ -311,8 +328,10 @@ func writeToFile(l *loggable, contents, filename string) error {
 	return nil
 }
 
-func runApp(l *loggable, dir string, cmd string, a ...string) error {
-	l.logVerboseF("runApp: %s %v", cmd, a)
+func runApp(log *slog.Logger, dir string, cmd string, a ...string) error {
+	if log != nil {
+		log.Debug("runApp", "cmd", cmd, "args", a)
+	}
 	c := exec.Command(cmd, a...)
 	c.Dir = dir
 	out, err := c.CombinedOutput()
@@ -333,7 +352,7 @@ func (d *Driver) GenerateOutput() (io.Reader, error) {
 	if err = d.checkParams(); err != nil {
 		return nil, err
 	}
-	generator := getGenerator(d.loggable, d.FS, d.Product)
+	generator := getGenerator(d.Logger, d.Verbosity, d.FS, d.Product)
 	if generator == nil {
 		return nil, engineError
 	}
@@ -341,21 +360,19 @@ func (d *Driver) GenerateOutput() (io.Reader, error) {
 	if worker == nil {
 		return nil, engineError
 	}
-	var logP *loggable
-	if d.loggable.logger != nil {
-		logP = &d.loggable
+	var log *slog.Logger
+	if d.Logger != nil {
+		log = d.Logger
 	} else {
-		logP = &loggable{
-			logger:    log.Default(),
-			verbosity: d.verbosity,
-		}
+		handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: d.Verbosity.Level()})
+		log = slog.New(handler)
 	}
 	seed := worker.Seed()
 	text := worker.GeneratePrettyString(productPretty[d.Product])
 	if d.OutputMode == Raw {
 		ifh, ofh := io.Pipe()
 		go func() {
-			e := writeToFh(logP, text, ofh)
+			e := writeToFh(log, text, ofh)
 			ofh.CloseWithError(e)
 		}()
 		return ifh, nil
@@ -366,7 +383,9 @@ func (d *Driver) GenerateOutput() (io.Reader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("setupdir: %w", err)
 	}
-	logP.logVerboseF("workdir: %s", workDir)
+	if log != nil {
+		log.Debug("workdir", "dir", workDir)
+	}
 	defer os.RemoveAll(workDir)
 	// for files, remove reliance on workdir by using a wrapper that prepends dir to path
 	workFile := func(basename string) string { return filepath.Join(workDir, basename) }
@@ -379,35 +398,35 @@ func (d *Driver) GenerateOutput() (io.Reader, error) {
 	}
 	basename := "mathgen-" + strconv.FormatInt(seed, 10)
 
-	if err = writeToFile(logP, text, workFile(basename+".tex")); err != nil {
+	if err = writeToFile(log, text, workFile(basename+".tex")); err != nil {
 		return nil, err
 	}
 	bibText := worker.GenerateBibtex(text)
-	if err = writeToFile(logP, bibText, workFile(bibName)); err != nil {
+	if err = writeToFile(log, bibText, workFile(bibName)); err != nil {
 		return nil, err
 	}
-	if err = runApp(logP, workDir, "pdflatex", "-halt-on-error", basename); err != nil {
+	if err = runApp(log, workDir, "pdflatex", "-halt-on-error", basename); err != nil {
 		return nil, err
 	}
-	if err = runApp(logP, workDir, "bibtex", basename); err != nil {
+	if err = runApp(log, workDir, "bibtex", basename); err != nil {
 		return nil, err
 	}
 	if d.Product == Book {
-		if err = runApp(logP, workDir, "makeindex", basename+".idx"); err != nil {
+		if err = runApp(log, workDir, "makeindex", basename+".idx"); err != nil {
 			return nil, err
 		}
 	}
-	if err = runApp(logP, workDir, "pdflatex", "-halt-on-error", basename); err != nil {
+	if err = runApp(log, workDir, "pdflatex", "-halt-on-error", basename); err != nil {
 		return nil, err
 	}
-	if err = runApp(logP, workDir, "pdflatex", "-halt-on-error", basename); err != nil {
+	if err = runApp(log, workDir, "pdflatex", "-halt-on-error", basename); err != nil {
 		return nil, err
 	}
 	var readmeText string
 	if readmeText, err = generateReadmeText(d.Product, basename); err != nil {
 		return nil, fmt.Errorf("generateReadmeText: %w", err)
 	}
-	if err = writeToFile(logP, readmeText, workFile("README")); err != nil {
+	if err = writeToFile(log, readmeText, workFile("README")); err != nil {
 		return nil, err
 	}
 
@@ -437,7 +456,7 @@ func (d *Driver) GenerateOutput() (io.Reader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("zipopen: %w", err)
 	}
-	err = makeZip(logP, zipFh, seed, zipFiles)
+	err = makeZip(log, zipFh, seed, zipFiles)
 	if err != nil {
 		return nil, fmt.Errorf("zip: %w", err)
 	}

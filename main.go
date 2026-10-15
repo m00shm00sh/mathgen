@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strconv"
@@ -96,8 +97,7 @@ func (a *authorsT) Set(v string) error {
 
 func printVerboseF(format string, v ...any) {
 	if verbosity >= mathgen.Verbose {
-		fmt.Printf("V: "+format, v...)
-		fmt.Println()
+		slog.Debug(fmt.Sprintf(format, v...))
 	}
 }
 
@@ -199,6 +199,7 @@ func generateOutput() error {
 	d.Product = product
 	d.Seed = seed
 	d.SetVerbosity(verbosity)
+	d.SetLogger(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: verbosity.Level()})))
 	d.Authors = authors
 	var ifh io.Reader
 	ifh, err = d.GenerateOutput()

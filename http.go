@@ -11,8 +11,8 @@
 package main
 
 import (
-	"encoding/json"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"

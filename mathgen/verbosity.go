@@ -13,6 +13,7 @@ package mathgen
 
 import (
 	"fmt"
+	"log/slog"
 )
 
 type Verbosity int
@@ -38,6 +39,21 @@ func (v *Verbosity) String() string {
 		panic(fmt.Errorf("unhandled Verbosity value %d", *v))
 	}
 }
+func (v Verbosity) Level() slog.Level {
+	switch v {
+	case None:
+		return slog.LevelWarn
+	case Info:
+		return slog.LevelInfo
+	case Verbose:
+		return slog.LevelDebug
+	case Debug:
+		return slog.LevelDebug
+	default:
+		return slog.LevelInfo
+	}
+}
+
 func (v *Verbosity) Set(value string) error {
 	switch value {
 	case "none":
